@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   package-compliance:
@@ -26,21 +27,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch sibling xgc2-protobuf-dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p proto-debs
+          gh run download --repo XGC-Team/xgc2-protobuf \
+            --name xgc2-protobuf-focal-all --dir proto-debs
       - name: Build and test against Focal system gRPC/protobuf
         run: |
           set -euo pipefail
-          docker run --rm \
+          docker run --rm --network none \
             -v "${GITHUB_WORKSPACE}:/work" \
+            -v "${GITHUB_WORKSPACE}/proto-debs:/proto-debs:ro" \
             -w /work \
-            ubuntu:20.04 \
+            ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0 \
             bash -lc '
               set -euo pipefail
-              export DEBIAN_FRONTEND=noninteractive
-              ./.xgc2/scripts/install_protobuf_dependency.sh focal
-              apt-get install -y --no-install-recommends \
-                build-essential clang-format cmake cppcheck \
+              dpkg -i /proto-debs/xgc2-protobuf-dev_*.deb
+              for pkg in build-essential clang-format cmake cppcheck \
                 libgrpc++-dev libgtest-dev libprotobuf-dev libre2-dev \
                 pkg-config protobuf-compiler protobuf-compiler-grpc
+              do
+                dpkg -s "${pkg}" >/dev/null
+              done
               ./.xgc2/scripts/check_cpp_quality.sh
             '
 
@@ -53,55 +64,65 @@ jobs:
           - architecture: amd64
             runner: ubuntu-latest
             platform: linux/amd64
-            image: ubuntu:20.04
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0
             distribution: focal
           - architecture: arm64
             runner: ubuntu-24.04-arm
             platform: linux/arm64
-            image: ubuntu:20.04
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0
             distribution: focal
           - architecture: amd64
             runner: ubuntu-latest
             platform: linux/amd64
-            image: ubuntu:22.04
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0
             distribution: jammy
           - architecture: arm64
             runner: ubuntu-24.04-arm
             platform: linux/arm64
-            image: ubuntu:22.04
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0
             distribution: jammy
           - architecture: amd64
             runner: ubuntu-latest
             platform: linux/amd64
-            image: ubuntu:24.04
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
             distribution: noble
           - architecture: arm64
             runner: ubuntu-24.04-arm
             platform: linux/arm64
-            image: ubuntu:24.04
+            image: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
             distribution: noble
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch sibling xgc2-protobuf-dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p proto-debs
+          gh run download --repo XGC-Team/xgc2-protobuf \
+            --name xgc2-protobuf-${{ matrix.distribution }}-all --dir proto-debs
       - name: Build Deb and exercise installed consumer
         run: |
           set -euo pipefail
           install -d .ci/build-manifests
-          docker run --rm \
+          docker run --rm --network none \
             --platform "${{ matrix.platform }}" \
             -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
             -v "${GITHUB_WORKSPACE}:/work" \
+            -v "${GITHUB_WORKSPACE}/proto-debs:/proto-debs:ro" \
             -w /work \
             "${{ matrix.image }}" \
             bash -lc '
               set -euo pipefail
-              export DEBIAN_FRONTEND=noninteractive
-              ./.xgc2/scripts/install_protobuf_dependency.sh "${PACKAGE_DISTRIBUTION}"
-              apt-get install -y --no-install-recommends \
-                build-essential cmake dpkg-dev fakeroot file \
+              dpkg -i /proto-debs/xgc2-protobuf-dev_*.deb
+              for pkg in build-essential cmake dpkg-dev fakeroot file \
                 libgrpc++-dev libprotobuf-dev libre2-dev pkg-config \
                 protobuf-compiler protobuf-compiler-grpc
+              do
+                dpkg -s "${pkg}" >/dev/null
+              done
               ./.xgc2/scripts/build_deb.sh
-              apt-get install -y \
+              dpkg -i \
                 ./debs/libxgc2-adapter-runtime-client2_*.deb \
                 ./debs/libxgc2-adapter-runtime-client-dev_*.deb
               ./.xgc2/scripts/smoke_test_installed.sh
