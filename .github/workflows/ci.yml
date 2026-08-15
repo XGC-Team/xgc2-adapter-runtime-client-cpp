@@ -21,7 +21,6 @@ jobs:
           set -euo pipefail
           git diff --check HEAD
           ./.xgc2/scripts/check_package_compliance.sh
-
   cpp14-focal:
     name: Focal C++14 integration and quality
     runs-on: ubuntu-latest
@@ -54,7 +53,6 @@ jobs:
               done
               ./.xgc2/scripts/check_cpp_quality.sh
             '
-
   deb-build-and-smoke:
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -147,3 +145,6 @@ jobs:
             .ci/build-manifests/*.json
           retention-days: 14
           include-hidden-files: true
+
+
+

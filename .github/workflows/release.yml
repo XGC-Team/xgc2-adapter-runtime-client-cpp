@@ -26,14 +26,6 @@ on:
         required: false
         default: ""
         type: string
-      run_cpp_quality:
-        required: true
-        default: false
-        type: boolean
-      run_source_tests:
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   actions: read
@@ -74,9 +66,7 @@ jobs:
           ./.xgc2/scripts/check_package_compliance.sh
           source .xgc2/dependencies/xgc2-protobuf.env
           [[ "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" =~ ^[0-9a-f]{40}$ ]]
-
   cpp-quality:
-    if: ${{ inputs.run_cpp_quality || inputs.run_source_tests }}
     needs: release-guard
     runs-on: ubuntu-latest
     steps:
@@ -108,7 +98,6 @@ jobs:
               done
               ./.xgc2/scripts/check_cpp_quality.sh
             '
-
   deb-build-and-smoke:
     needs: release-guard
     runs-on: ${{ matrix.runner }}
@@ -175,3 +164,6 @@ jobs:
             .ci/build-manifests/*.json
           retention-days: 14
           include-hidden-files: true
+
+
+
