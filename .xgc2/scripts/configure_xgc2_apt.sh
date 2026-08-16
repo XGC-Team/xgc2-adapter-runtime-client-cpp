@@ -27,7 +27,12 @@ base_url="${base_url%/}"
 key_url="${XGC2_APT_KEY_URL:-https://xgc2.apt.xiaokang.ink/xgc2-archive-keyring.gpg}"
 
 "${sudo_cmd[@]}" apt-get update
-"${sudo_cmd[@]}" apt-get install -y --no-install-recommends ca-certificates curl gnupg
+for command in curl gpg update-ca-certificates; do
+  if ! command -v "${command}" >/dev/null; then
+    echo "XGC2 build image is missing APT setup tool: ${command}" >&2
+    exit 1
+  fi
+done
 curl -fsSL "${key_url}" -o /tmp/xgc2-archive-keyring.gpg
 gpg --show-keys --with-fingerprint --with-colons \
   /tmp/xgc2-archive-keyring.gpg 2>&1 \

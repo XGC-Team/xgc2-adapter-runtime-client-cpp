@@ -147,9 +147,9 @@ PY
 product_version="${metadata_values}"
 for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
   docker_builds="$(grep -c 'docker run --rm' "${workflow}")"
-  protobuf_resolver_invocations="$(grep -c './.xgc2/scripts/install_protobuf_dependency.sh' "${workflow}")"
-  if [[ "${protobuf_resolver_invocations}" -ne "${docker_builds}" ]]; then
-    echo "${workflow} must resolve protobuf in every build container" >&2
+  protobuf_local_installs="$(grep -c 'dpkg -i /proto-debs/xgc2-protobuf-dev_\*.deb' "${workflow}")"
+  if [[ "${protobuf_local_installs}" -ne "${docker_builds}" ]]; then
+    echo "${workflow} must install the fetched protobuf Deb in every build container" >&2
     exit 1
   fi
   if grep -Eq -- 'vars\.XGC2_PROTOBUF|-[[:space:]]*e[[:space:]]+XGC2_PROTOBUF' "${workflow}"; then
@@ -162,8 +162,19 @@ if grep -Fq 'XGC2_PROTOBUF_SOURCE_REF' .github/workflows/release.yml; then
   echo "release workflow retains the retired protobuf source-ref variable" >&2
   exit 1
 fi
-grep -Fq 'apt-cache policy xgc2-protobuf-dev' .xgc2/scripts/install_protobuf_dependency.sh
-grep -Fq 'XGC2_APT_OVERLAY_URL' .xgc2/scripts/install_protobuf_dependency.sh
+grep -Fq 'PROTOBUF_DEB_DIR' .xgc2/scripts/install_protobuf_dependency.sh
+grep -Fq 'do not apt-get in product CI' .xgc2/scripts/install_protobuf_dependency.sh
+if grep -Fq 'apt-get install' .xgc2/scripts/install_protobuf_dependency.sh; then
+  echo "protobuf dependency helper must only install a fetched local Deb" >&2
+  exit 1
+fi
+if grep -Fq 'apt-get install' .xgc2/scripts/configure_xgc2_apt.sh; then
+  echo "staging APT setup must use image-provided curl, gpg, and CA certificates" >&2
+  exit 1
+fi
+grep -Fq 'for command in curl gpg update-ca-certificates; do' \
+  .xgc2/scripts/configure_xgc2_apt.sh
+grep -Fq 'command -v "${command}"' .xgc2/scripts/configure_xgc2_apt.sh
 grep -Fq 'XGC2_PROTOBUF_PROTOCOL_VERSION' .xgc2/scripts/build_deb.sh
 grep -Fq 'XGC2_PROTOBUF_PROTOCOL_VERSION' .xgc2/scripts/smoke_test_installed.sh
 if grep -Fq 'XGC2_PROTOBUF_DEB_VERSION' .xgc2/scripts/build_deb.sh; then
