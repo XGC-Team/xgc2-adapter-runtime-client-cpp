@@ -76,9 +76,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p proto-debs
-          gh run download --repo XGC-Team/xgc2-protobuf \
-            --name xgc2-protobuf-focal-all --dir proto-debs
+          ./.xgc2/scripts/fetch_protobuf_deb.sh focal proto-debs
       - name: Focal source tests
         run: |
           set -euo pipefail
@@ -118,9 +116,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p proto-debs
-          gh run download --repo XGC-Team/xgc2-protobuf \
-            --name xgc2-protobuf-${{ matrix.distribution }}-all --dir proto-debs
+          ./.xgc2/scripts/fetch_protobuf_deb.sh \
+            "${{ matrix.distribution }}" proto-debs
       - name: Build release-train artifact
         run: |
           set -euo pipefail
@@ -164,6 +161,5 @@ jobs:
             .ci/build-manifests/*.json
           retention-days: 14
           include-hidden-files: true
-
 
 

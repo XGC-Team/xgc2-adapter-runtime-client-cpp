@@ -25,6 +25,7 @@ required=(
   .xgc2/dependencies/xgc2-protobuf.env
   .xgc2/product.yml .xgc2/scripts/build_deb.sh
   .xgc2/scripts/configure_xgc2_apt.sh
+  .xgc2/scripts/fetch_protobuf_deb.sh
   .xgc2/scripts/install_protobuf_dependency.sh
   .xgc2/scripts/check_cpp_quality.sh
   .xgc2/scripts/smoke_test_installed.sh
@@ -157,6 +158,19 @@ for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
     exit 1
   fi
 done
+for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
+  if [[ "$(grep -c 'fetch_protobuf_deb.sh' "${workflow}")" -ne 2 ]]; then
+    echo "${workflow} must fetch one validated protobuf Deb for each build path" >&2
+    exit 1
+  fi
+  if grep -Fq 'gh run download' "${workflow}"; then
+    echo "${workflow} must not use the empty cross-repository gh run download flow" >&2
+    exit 1
+  fi
+done
+grep -Fq 'actions/runs/${run_id}/artifacts' .xgc2/scripts/fetch_protobuf_deb.sh
+grep -Fq -- "-name 'xgc2-protobuf-dev_*.deb'" .xgc2/scripts/fetch_protobuf_deb.sh
+grep -Fq 'dpkg-deb -f' .xgc2/scripts/fetch_protobuf_deb.sh
 grep -Fq 'XGC2_PROTOBUF_STANDALONE_SOURCE_REF' .github/workflows/release.yml
 if grep -Fq 'XGC2_PROTOBUF_SOURCE_REF' .github/workflows/release.yml; then
   echo "release workflow retains the retired protobuf source-ref variable" >&2
