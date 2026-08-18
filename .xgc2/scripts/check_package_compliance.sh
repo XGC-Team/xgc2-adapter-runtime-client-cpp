@@ -189,6 +189,13 @@ fi
 grep -Fq 'for command in curl gpg update-ca-certificates; do' \
   .xgc2/scripts/configure_xgc2_apt.sh
 grep -Fq 'command -v "${command}"' .xgc2/scripts/configure_xgc2_apt.sh
+grep -Fq '/etc/apt/sources.list.d/xgc2.list' .xgc2/scripts/configure_xgc2_apt.sh
+grep -Fq '00-xgc2-release-train.list' .xgc2/scripts/configure_xgc2_apt.sh
+grep -Fq 'https://xgc2.apt.xiaokang.ink' .xgc2/scripts/configure_xgc2_apt.sh
+if grep -Fq 'XGC2_APT_OVERLAY_URL:-https://xgc2.apt' .xgc2/scripts/configure_xgc2_apt.sh; then
+  echo "staging overlay must not replace production APT" >&2
+  exit 1
+fi
 grep -Fq 'XGC2_PROTOBUF_PROTOCOL_VERSION' .xgc2/scripts/build_deb.sh
 grep -Fq 'XGC2_PROTOBUF_PROTOCOL_VERSION' .xgc2/scripts/smoke_test_installed.sh
 if grep -Fq 'XGC2_PROTOBUF_DEB_VERSION' .xgc2/scripts/build_deb.sh; then

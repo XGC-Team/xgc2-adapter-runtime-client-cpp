@@ -22,8 +22,9 @@ else
   sudo_cmd=(sudo)
 fi
 
-base_url="${XGC2_APT_OVERLAY_URL:-https://xgc2.apt.xiaokang.ink}"
-base_url="${base_url%/}"
+production_url="https://xgc2.apt.xiaokang.ink"
+overlay_url="${XGC2_APT_OVERLAY_URL:-}"
+overlay_url="${overlay_url%/}"
 key_url="${XGC2_APT_KEY_URL:-https://xgc2.apt.xiaokang.ink/xgc2-archive-keyring.gpg}"
 
 "${sudo_cmd[@]}" apt-get update
@@ -40,6 +41,10 @@ gpg --show-keys --with-fingerprint --with-colons \
 "${sudo_cmd[@]}" install -d -m 0755 /etc/apt/keyrings
 "${sudo_cmd[@]}" install -m 0644 /tmp/xgc2-archive-keyring.gpg \
   /etc/apt/keyrings/xgc2-archive-keyring.gpg
-echo "deb [signed-by=/etc/apt/keyrings/xgc2-archive-keyring.gpg] ${base_url} ${distribution} main" \
+echo "deb [signed-by=/etc/apt/keyrings/xgc2-archive-keyring.gpg] ${production_url} ${distribution} main" \
   | "${sudo_cmd[@]}" tee /etc/apt/sources.list.d/xgc2.list >/dev/null
+if [[ -n "${overlay_url}" ]]; then
+  echo "deb [signed-by=/etc/apt/keyrings/xgc2-archive-keyring.gpg] ${overlay_url} ${distribution} main" \
+    | "${sudo_cmd[@]}" tee /etc/apt/sources.list.d/00-xgc2-release-train.list >/dev/null
+fi
 "${sudo_cmd[@]}" apt-get update
