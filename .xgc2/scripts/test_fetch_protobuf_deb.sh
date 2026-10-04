@@ -1,104 +1,110 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
-
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-locked_source_ref="cd0b18754f6fb4d66fcd99b5d95032f693c391b4"
-
-# shellcheck source=../dependencies/xgc2-protobuf.env
-source "${repo_root}/.xgc2/dependencies/xgc2-protobuf.env"
-if [[ "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "${locked_source_ref}" ]]; then
-  echo "protobuf fetch test source lock is stale" >&2
-  exit 1
-fi
-
 temporary="$(mktemp -d)"
-cleanup() {
-  rm -rf "${temporary}"
-}
-trap cleanup EXIT
-
+trap 'rm -rf "$temporary"' EXIT
+fixture="${temporary}/fixture"
 mock_bin="${temporary}/bin"
-mkdir -p "${mock_bin}"
-
-cat > "${mock_bin}/gh" <<'MOCK'
+mkdir -p "${fixture}/.xgc2/scripts" "${fixture}/.xgc2/dependencies" "${mock_bin}"
+cp "${repo_root}/.xgc2/scripts/fetch_protobuf_deb.sh" "${fixture}/.xgc2/scripts/"
+cp "${repo_root}/.xgc2/dependencies/xgc2-protobuf.env" "${fixture}/.xgc2/dependencies/"
+# Stub only the existing signed APT configuration boundary; never touch host APT.
+cat > "${fixture}/.xgc2/scripts/configure_xgc2_apt.sh" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%q ' "$@" >> "${MOCK_GH_LOG}"
-printf '\n' >> "${MOCK_GH_LOG}"
-if [[ "${1:-}" == "run" && "${2:-}" == "list" ]]; then
-  printf '32658339664\t%s\n' "${MOCK_RUN_HEAD_SHA}"
-  exit 0
-fi
-if [[ "${1:-}" == "api" && "${2:-}" == *'/artifacts?per_page=100' ]]; then
-  printf '9498077992\n'
-  exit 0
-fi
-if [[ "${1:-}" == "api" && "${2:-}" == *'/actions/artifacts/9498077992/zip' ]]; then
-  printf 'mock artifact zip'
-  exit 0
-fi
-echo "unexpected gh invocation: $*" >&2
-exit 1
+[[ -z "${XGC2_APT_OVERLAY_URL+x}" && -z "${XGC2_APT_KEY_URL+x}" ]]
+printf 'configure %s\n' "$1" >> "$MOCK_LOG"
+exit "${MOCK_CONFIGURE_EXIT:-0}"
 MOCK
-
-cat > "${mock_bin}/unzip" <<'MOCK'
+cat > "${mock_bin}/curl" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-destination=""
-while (( $# > 0 )); do
-  if [[ "$1" == "-d" ]]; then
-    destination="$2"
-    shift 2
-  else
-    shift
-  fi
+output=""; url=""
+while (( $# )); do
+  case "$1" in
+    --output) output="$2"; shift 2 ;;
+    https://*) url="$1"; shift ;;
+    *) shift ;;
+  esac
 done
-test -n "${destination}"
-mkdir -p "${destination}"
-: > "${destination}/xgc2-protobuf-dev_0.5.0-17~focal_amd64.deb"
+python3 - "$url" "$output" <<'JSON'
+import hashlib
+import json
+import os
+import re
+import sys
+from pathlib import Path
+url, output = sys.argv[1:]
+match = re.fullmatch(r"https://xgc2\.apt\.xiaokang\.ink/manifests/xgc2-protobuf/(focal|jammy|noble)/(amd64|arm64)/xgc2-protobuf-dev_0\.5\.0-17~\1\.json", url)
+if not match:
+    raise SystemExit("unexpected persistent manifest URL")
+suite, arch = match.groups()
+data = f"protobuf:{suite}".encode()
+Path(output).write_text(json.dumps({
+    "schema": "xgc2.release-artifact.v1", "product": "xgc2-protobuf",
+    "source_sha": os.environ["MOCK_SOURCE_SHA"], "version": "0.5.0-17",
+    "distribution": suite, "architecture": arch,
+    "debs": [{"package": "xgc2-protobuf-dev", "version": f"0.5.0-17~{suite}",
+              "architecture": "all", "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}],
+}))
+JSON
 MOCK
-
+cat > "${mock_bin}/dpkg" <<'MOCK'
+#!/usr/bin/env bash
+[[ "$1" == --print-architecture ]]
+printf '%s\n' "${MOCK_ARCHITECTURE:-amd64}"
+MOCK
+cat > "${mock_bin}/apt-get" <<'MOCK'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == download && "$2" == xgc2-protobuf-dev=0.5.0-17~* ]]
+printf 'download %s\n' "$2" >> "$MOCK_LOG"
+version="${2#*=}"; suite="${version#*~}"
+printf 'protobuf:%s' "$suite" > "xgc2-protobuf-dev_${version}_all.deb"
+if [[ "${MOCK_TAMPER:-0}" == 1 ]]; then
+  printf tampered >> "xgc2-protobuf-dev_${version}_all.deb"
+fi
+MOCK
 cat > "${mock_bin}/dpkg-deb" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "${1:-}" != "-f" ]]; then
-  exit 1
-fi
-if [[ "${3:-}" == "Package" && $# -eq 3 ]]; then
-  printf 'xgc2-protobuf-dev\n'
-  exit 0
-fi
-printf 'Package: xgc2-protobuf-dev\nVersion: 0.5.0-17~focal\nArchitecture: amd64\n'
+[[ "$1" == -f ]]
+file="${2##*/}"; version="${file#xgc2-protobuf-dev_}"; version="${version%_all.deb}"
+case "$3" in
+  Package) printf 'xgc2-protobuf-dev\n' ;;
+  Version) printf '%s\n' "$version" ;;
+  Architecture) printf 'all\n' ;;
+  *) exit 1 ;;
+esac
 MOCK
-
-chmod +x "${mock_bin}/gh" "${mock_bin}/unzip" "${mock_bin}/dpkg-deb"
-export MOCK_GH_LOG="${temporary}/gh.log"
-
-mismatch_output="${temporary}/mismatch"
-if PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="$(printf 'd%.0s' {1..40})" \
-    "${repo_root}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${mismatch_output}" \
-    > "${temporary}/mismatch.stdout" 2> "${temporary}/mismatch.stderr"; then
-  echo "protobuf fetch accepted a successful run from the wrong head SHA" >&2
-  exit 1
+chmod +x "${mock_bin}"/*
+export PATH="${mock_bin}:${PATH}" MOCK_LOG="${temporary}/calls.log"
+export XGC2_APT_OVERLAY_URL=https://untrusted-overlay.invalid XGC2_APT_KEY_URL=https://untrusted-key.invalid
+source "${repo_root}/.xgc2/dependencies/xgc2-protobuf.env"
+export MOCK_SOURCE_SHA="$XGC2_PROTOBUF_STANDALONE_SOURCE_REF"
+for suite in focal jammy noble; do
+  : > "$MOCK_LOG"
+  output="${temporary}/$suite"
+  bash "${fixture}/.xgc2/scripts/fetch_protobuf_deb.sh" "$suite" "$output" > "${temporary}/$suite.stdout"
+  [[ -f "$output/xgc2-protobuf-dev_0.5.0-17~${suite}_all.deb" ]]
+  [[ "$(cat "$MOCK_LOG")" == "$(printf 'configure %s\ndownload xgc2-protobuf-dev=0.5.0-17~%s' "$suite" "$suite")" ]]
+done
+: > "$MOCK_LOG"
+MOCK_ARCHITECTURE=arm64 bash "${fixture}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${temporary}/arm64" >/dev/null
+: > "$MOCK_LOG"
+if MOCK_SOURCE_SHA="$(printf 'd%.0s' {1..40})" bash "${fixture}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${temporary}/wrong-source" > /dev/null 2> "${temporary}/wrong-source.stderr"; then
+  echo 'accepted a published package from another source SHA' >&2; exit 1
 fi
-grep -Fq "does not match locked source ${locked_source_ref}" "${temporary}/mismatch.stderr"
-if grep -Fq '/actions/runs/' "${MOCK_GH_LOG}"; then
-  echo "protobuf fetch inspected artifacts before validating the run head SHA" >&2
-  exit 1
+grep -Fq 'source_sha does not match locked' "${temporary}/wrong-source.stderr"
+[[ ! -s "$MOCK_LOG" ]]
+if MOCK_TAMPER=1 bash "${fixture}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${temporary}/tampered" > /dev/null 2> "${temporary}/tampered.stderr"; then
+  echo 'accepted Deb bytes that differ from the source-bound release' >&2; exit 1
 fi
-
-: > "${MOCK_GH_LOG}"
-success_output="${temporary}/success"
-PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="${locked_source_ref}" \
-  "${repo_root}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${success_output}" \
-  > "${temporary}/success.stdout"
-
-test -f "${success_output}/xgc2-protobuf-dev_0.5.0-17~focal_amd64.deb"
-grep -Fq -- "--commit ${locked_source_ref}" "${MOCK_GH_LOG}"
-grep -Fq -- '--event push' "${MOCK_GH_LOG}"
-grep -Fq -- '--status success' "${MOCK_GH_LOG}"
-grep -Fq -- '--json databaseId\,headSha' "${MOCK_GH_LOG}"
-grep -Fq "run 32658339664 at ${locked_source_ref}" "${temporary}/success.stdout"
-
-echo "Pinned protobuf artifact fetch tests passed."
+grep -Fq 'differs from the pinned release manifest' "${temporary}/tampered.stderr"
+[[ -z "$(find "${temporary}/tampered" -type f -print -quit)" ]]
+: > "$MOCK_LOG"
+if MOCK_CONFIGURE_EXIT=17 bash "${fixture}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${temporary}/unsigned" > /dev/null 2>&1; then
+  echo 'downloaded despite failed signing/index configuration' >&2; exit 1
+fi
+[[ "$(cat "$MOCK_LOG")" == 'configure focal' ]]
+echo 'Pinned persistent protobuf fetch tests passed (focal/jammy/noble/all and source/hash/signing failures).'

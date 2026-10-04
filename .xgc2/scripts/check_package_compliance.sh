@@ -173,10 +173,11 @@ for workflow in .github/workflows/ci.yml .github/workflows/release.yml; do
     exit 1
   fi
 done
-grep -Fq 'actions/runs/${run_id}/artifacts' .xgc2/scripts/fetch_protobuf_deb.sh
-grep -Fq -- '--commit "${locked_source_ref}"' .xgc2/scripts/fetch_protobuf_deb.sh
-grep -Fq -- '--json databaseId,headSha' .xgc2/scripts/fetch_protobuf_deb.sh
-grep -Fq 'run_head_sha' .xgc2/scripts/fetch_protobuf_deb.sh
+if grep -Eq 'actions/(runs|artifacts)|gh run list' .xgc2/scripts/fetch_protobuf_deb.sh; then
+  echo "protobuf source pins must not depend on expiring Actions artifacts" >&2
+  exit 1
+fi
+grep -Fq 'XGC2_PROTOBUF_STANDALONE_PACKAGE_VERSION' .xgc2/scripts/fetch_protobuf_deb.sh
 grep -Fq -- "-name 'xgc2-protobuf-dev_*.deb'" .xgc2/scripts/fetch_protobuf_deb.sh
 grep -Fq 'dpkg-deb -f' .xgc2/scripts/fetch_protobuf_deb.sh
 .xgc2/scripts/test_fetch_protobuf_deb.sh
