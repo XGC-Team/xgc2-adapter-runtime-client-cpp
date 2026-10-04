@@ -226,7 +226,6 @@ class Client::Impl {
   bool CommitSourceTerminalLocked(const std::string& stream_id,
                                   const SourceState& source,
                                   xgc::adapter::v1::WorkRequest terminal_frame);
-  bool WorkFrameFitsLocked(xgc::adapter::v1::WorkRequest* frame) const;
   void QueueWorkProtocolError(std::uint64_t rejected_sequence,
                               const std::string& message);
   void BeginDrain();
@@ -247,7 +246,8 @@ class Client::Impl {
   bool QueueControl(xgc::adapter::v1::ControlRequest request);
   bool QueueWork(xgc::adapter::v1::WorkRequest request);
   bool QueueControlLocked(xgc::adapter::v1::ControlRequest request);
-  bool QueueWorkLocked(xgc::adapter::v1::WorkRequest request);
+  bool QueueWorkLocked(xgc::adapter::v1::WorkRequest request,
+                       std::size_t frame_bytes);
   std::size_t ControlFrameBytesLocked(xgc::adapter::v1::ControlRequest* frame) const;
   std::size_t WorkFrameBytesLocked(xgc::adapter::v1::WorkRequest* frame) const;
   void QueueWorkOrFail(xgc::adapter::v1::WorkRequest request);

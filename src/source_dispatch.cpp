@@ -117,12 +117,18 @@ void Client::Impl::HandleSourceOpen(const DispatchJob& job) {
         *result->mutable_error() = decision.error;
       }
       if (decision.accepted) {
-        if (!WorkFrameFitsLocked(&frame) || !QueueWorkLocked(std::move(frame))) {
+        if (maximum_work_frame_bytes_ == 0) {
           fail_pair = true;
         } else {
-          source->second.phase = SourceState::Phase::kOpen;
-          source->second.message_credit = job.source_open.initial_credit().messages();
-          source->second.byte_credit = job.source_open.initial_credit().bytes();
+          const std::size_t frame_bytes = WorkFrameBytesLocked(&frame);
+          if (frame_bytes > maximum_work_frame_bytes_ ||
+              !QueueWorkLocked(std::move(frame), frame_bytes)) {
+            fail_pair = true;
+          } else {
+            source->second.phase = SourceState::Phase::kOpen;
+            source->second.message_credit = job.source_open.initial_credit().messages();
+            source->second.byte_credit = job.source_open.initial_credit().bytes();
+          }
         }
       } else if (!CommitSourceTerminalLocked(job.work_id, source->second,
                                              std::move(frame))) {

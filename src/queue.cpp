@@ -94,11 +94,12 @@ bool Client::Impl::QueueControlLocked(xgc::adapter::v1::ControlRequest request) 
 
 bool Client::Impl::QueueWork(xgc::adapter::v1::WorkRequest request) {
   std::lock_guard<std::mutex> lock(mutex_);
-  return QueueWorkLocked(std::move(request));
+  const std::size_t frame_bytes = WorkFrameBytesLocked(&request);
+  return QueueWorkLocked(std::move(request), frame_bytes);
 }
 
-bool Client::Impl::QueueWorkLocked(xgc::adapter::v1::WorkRequest request) {
-  const std::size_t frame_bytes = WorkFrameBytesLocked(&request);
+bool Client::Impl::QueueWorkLocked(xgc::adapter::v1::WorkRequest request,
+                                   std::size_t frame_bytes) {
   if (session_id_.empty() || session_failed_ || stop_requested_ ||
       work_queue_.size() >= config_.maximum_work_queue ||
       frame_bytes > maximum_work_frame_bytes_ ||

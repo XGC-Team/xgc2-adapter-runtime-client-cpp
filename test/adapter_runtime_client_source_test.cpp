@@ -152,8 +152,12 @@ TEST_F(SourceFrameLimitTest, PreflightsCompleteFramesBeforeCreditOrLifecycleComm
 
   EXPECT_EQ(client.PublishSource("source-frame-limit", {""}),
             xgc2::adapter_runtime::SourceWriteResult::kTooLarge);
-  EXPECT_EQ(client.PublishSource("source-frame-limit", {std::string(1024, 'x')}),
-            xgc2::adapter_runtime::SourceWriteResult::kTooLarge);
+  const auto dropped_before = client.session().dropped_outbound_frames;
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    EXPECT_EQ(client.PublishSource("source-frame-limit", {std::string(1024, 'x')}),
+              xgc2::adapter_runtime::SourceWriteResult::kTooLarge);
+  }
+  EXPECT_EQ(client.session().dropped_outbound_frames, dropped_before);
   EXPECT_EQ(client.PublishSource("source-frame-limit", {std::string(32, 'x')}),
             xgc2::adapter_runtime::SourceWriteResult::kAccepted);
 

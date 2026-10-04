@@ -62,10 +62,14 @@ SourceWriteResult Client::Impl::PublishSource(const std::string& stream_id,
   for (auto& item : items) {
     data->add_items(std::move(item));
   }
-  if (!WorkFrameFitsLocked(&frame)) {
+  if (maximum_work_frame_bytes_ == 0) {
     return SourceWriteResult::kTooLarge;
   }
-  if (!QueueWorkLocked(std::move(frame))) {
+  const std::size_t frame_bytes = WorkFrameBytesLocked(&frame);
+  if (frame_bytes > maximum_work_frame_bytes_) {
+    return SourceWriteResult::kTooLarge;
+  }
+  if (!QueueWorkLocked(std::move(frame), frame_bytes)) {
     return SourceWriteResult::kQueueFull;
   }
   stream->second.message_credit -= messages;
@@ -137,7 +141,6 @@ void Client::Impl::GrantSourceCredit(const xgc::adapter::v1::SourceCredit& credi
       stream->second.acknowledged_sequence = credit.acknowledged_sequence();
       stream->second.message_credit += credit.grant().messages();
       stream->second.byte_credit += credit.grant().bytes();
-      condition_.notify_all();
     }
   }
   if (!protocol_error.empty()) {
@@ -341,18 +344,17 @@ bool Client::Impl::CommitSourceTerminalLocked(
                                      &terminal_digest, &digest_error)
           : internal::TerminalDigest(terminal_frame.source_close(), &terminal_digest,
                                      &digest_error);
-  if (!digested || !WorkFrameFitsLocked(&terminal_frame) ||
-      !QueueWorkLocked(terminal_frame)) {
+  if (!digested || maximum_work_frame_bytes_ == 0) {
+    return false;
+  }
+  const std::size_t frame_bytes = WorkFrameBytesLocked(&terminal_frame);
+  if (frame_bytes > maximum_work_frame_bytes_ ||
+      !QueueWorkLocked(terminal_frame, frame_bytes)) {
     return false;
   }
   RememberClosedSourceLocked(stream_id, source, std::move(terminal_frame),
                              std::move(terminal_digest));
   return true;
-}
-
-bool Client::Impl::WorkFrameFitsLocked(xgc::adapter::v1::WorkRequest* frame) const {
-  return maximum_work_frame_bytes_ != 0 &&
-         WorkFrameBytesLocked(frame) <= maximum_work_frame_bytes_;
 }
 
 void Client::Impl::QueueWorkProtocolError(std::uint64_t rejected_sequence,
