@@ -246,8 +246,7 @@ class Client::Impl {
   bool QueueControl(xgc::adapter::v1::ControlRequest request);
   bool QueueWork(xgc::adapter::v1::WorkRequest request);
   bool QueueControlLocked(xgc::adapter::v1::ControlRequest request);
-  bool QueueWorkLocked(xgc::adapter::v1::WorkRequest request,
-                       std::size_t frame_bytes);
+  bool QueueWorkLocked(xgc::adapter::v1::WorkRequest request, std::size_t frame_bytes);
   std::size_t ControlFrameBytesLocked(xgc::adapter::v1::ControlRequest* frame) const;
   std::size_t WorkFrameBytesLocked(xgc::adapter::v1::WorkRequest* frame) const;
   void QueueWorkOrFail(xgc::adapter::v1::WorkRequest request);
