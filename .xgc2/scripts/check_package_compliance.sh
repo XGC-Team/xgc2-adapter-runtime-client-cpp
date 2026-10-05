@@ -48,7 +48,7 @@ done
     exit 1
   fi
   if [[ "${XGC2_PROTOBUF_PROTOCOL_VERSION}" != "0.5.0" ||
-        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "cd0b18754f6fb4d66fcd99b5d95032f693c391b4" ]]; then
+        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "84bc560f90fd0b1c086bfa841f99b1ca77f53d62" ]]; then
     echo "protobuf standalone source is not the supported RuntimeLink protocol contract" >&2
     exit 1
   fi
@@ -113,8 +113,8 @@ if product.get("kind") != "toolchain-apt":
 version = product.get("version")
 if not isinstance(version, str) or not version:
     raise SystemExit("product metadata version is missing")
-if version != "0.6.0-14":
-    raise SystemExit("product metadata version must be 0.6.0-14")
+if version != "0.6.0-15":
+    raise SystemExit("product metadata version must be 0.6.0-15")
 
 apt = product.get("apt")
 if not isinstance(apt, dict):

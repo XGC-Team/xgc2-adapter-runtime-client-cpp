@@ -35,16 +35,16 @@ import re
 import sys
 from pathlib import Path
 url, output = sys.argv[1:]
-match = re.fullmatch(r"https://xgc2\.apt\.xiaokang\.ink/manifests/xgc2-protobuf/(focal|jammy|noble)/(amd64|arm64)/xgc2-protobuf-dev_0\.5\.0-17~\1\.json", url)
+match = re.fullmatch(r"https://xgc2\.apt\.xiaokang\.ink/manifests/xgc2-protobuf/(focal|jammy|noble)/(amd64|arm64)/xgc2-protobuf-dev_0\.5\.0-18~\1\.json", url)
 if not match:
     raise SystemExit("unexpected persistent manifest URL")
 suite, arch = match.groups()
 data = f"protobuf:{suite}".encode()
 Path(output).write_text(json.dumps({
     "schema": "xgc2.release-artifact.v1", "product": "xgc2-protobuf",
-    "source_sha": os.environ["MOCK_SOURCE_SHA"], "version": "0.5.0-17",
+    "source_sha": os.environ["MOCK_SOURCE_SHA"], "version": "0.5.0-18",
     "distribution": suite, "architecture": arch,
-    "debs": [{"package": "xgc2-protobuf-dev", "version": f"0.5.0-17~{suite}",
+    "debs": [{"package": "xgc2-protobuf-dev", "version": f"0.5.0-18~{suite}",
               "architecture": "all", "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}],
 }))
 JSON
@@ -57,7 +57,7 @@ MOCK
 cat > "${mock_bin}/apt-get" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$1" == download && "$2" == xgc2-protobuf-dev=0.5.0-17~* ]]
+[[ "$1" == download && "$2" == xgc2-protobuf-dev=0.5.0-18~* ]]
 printf 'download %s\n' "$2" >> "$MOCK_LOG"
 version="${2#*=}"; suite="${version#*~}"
 printf 'protobuf:%s' "$suite" > "xgc2-protobuf-dev_${version}_all.deb"
@@ -86,8 +86,8 @@ for suite in focal jammy noble; do
   : > "$MOCK_LOG"
   output="${temporary}/$suite"
   bash "${fixture}/.xgc2/scripts/fetch_protobuf_deb.sh" "$suite" "$output" > "${temporary}/$suite.stdout"
-  [[ -f "$output/xgc2-protobuf-dev_0.5.0-17~${suite}_all.deb" ]]
-  [[ "$(cat "$MOCK_LOG")" == "$(printf 'configure %s\ndownload xgc2-protobuf-dev=0.5.0-17~%s' "$suite" "$suite")" ]]
+  [[ -f "$output/xgc2-protobuf-dev_0.5.0-18~${suite}_all.deb" ]]
+  [[ "$(cat "$MOCK_LOG")" == "$(printf 'configure %s\ndownload xgc2-protobuf-dev=0.5.0-18~%s' "$suite" "$suite")" ]]
 done
 : > "$MOCK_LOG"
 MOCK_ARCHITECTURE=arm64 bash "${fixture}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${temporary}/arm64" >/dev/null
