@@ -79,7 +79,9 @@ chmod +x "${mock_bin}/gh" "${mock_bin}/unzip" "${mock_bin}/dpkg-deb"
 export MOCK_GH_LOG="${temporary}/gh.log"
 
 mismatch_output="${temporary}/mismatch"
-if PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="$(printf 'd%.0s' {1..40})" \
+# Ordinary fixtures must not select a scoped source inherited from release CI.
+if env -u XGC2_APT_OVERLAY_URL -u XGC2_DEPENDENCY_SET_DIGEST \
+    PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="$(printf 'd%.0s' {1..40})" \
     "${repo_root}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${mismatch_output}" \
     > "${temporary}/mismatch.stdout" 2> "${temporary}/mismatch.stderr"; then
   echo "protobuf fetch accepted a successful run from the wrong head SHA" >&2
@@ -93,7 +95,8 @@ fi
 
 : > "${MOCK_GH_LOG}"
 success_output="${temporary}/success"
-PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="${locked_source_ref}" \
+env -u XGC2_APT_OVERLAY_URL -u XGC2_DEPENDENCY_SET_DIGEST \
+  PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="${locked_source_ref}" \
   "${repo_root}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${success_output}" \
   > "${temporary}/success.stdout"
 
@@ -104,7 +107,8 @@ grep -Fq -- '--status success' "${MOCK_GH_LOG}"
 grep -Fq -- '--json databaseId\,headSha' "${MOCK_GH_LOG}"
 grep -Fq "run 32658339664 at ${locked_source_ref}" "${temporary}/success.stdout"
 
-if PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="${locked_source_ref}" MOCK_PROTO_VERSION="0.5.0-18~focal" \
+if env -u XGC2_APT_OVERLAY_URL -u XGC2_DEPENDENCY_SET_DIGEST \
+    PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="${locked_source_ref}" MOCK_PROTO_VERSION="0.5.0-18~focal" \
     "${repo_root}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${temporary}/wrong-version" \
     > "${temporary}/wrong-version.stdout" 2> "${temporary}/wrong-version.stderr"; then
   echo "standalone fetch accepted Proto18 for the exact Proto19 source contract" >&2
