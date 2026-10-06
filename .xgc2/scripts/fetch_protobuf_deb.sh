@@ -17,13 +17,6 @@ case "${distribution}" in
     ;;
 esac
 
-for command in gh unzip dpkg-deb; do
-  command -v "${command}" >/dev/null || {
-    echo "missing required artifact tool: ${command}" >&2
-    exit 1
-  }
-done
-
 # shellcheck source=../dependencies/xgc2-protobuf.env
 source "${repo_root}/.xgc2/dependencies/xgc2-protobuf.env"
 locked_source_ref="${XGC2_PROTOBUF_STANDALONE_SOURCE_REF:-}"
@@ -37,6 +30,19 @@ if find "${output_dir}" -mindepth 1 -print -quit | grep -q .; then
   echo "protobuf output directory must be empty: ${output_dir}" >&2
   exit 1
 fi
+
+if [[ -n "${XGC2_APT_OVERLAY_URL:-}" ]]; then
+  "${repo_root}/.xgc2/scripts/configure_xgc2_apt.sh" \
+    --download-protobuf "${distribution}" "${output_dir}"
+  exit 0
+fi
+
+for command in gh unzip dpkg-deb; do
+  command -v "${command}" >/dev/null || {
+    echo "missing required artifact tool: ${command}" >&2
+    exit 1
+  }
+done
 
 repository="XGC-Team/xgc2-protobuf"
 artifact_name="xgc2-protobuf-${distribution}-all"
@@ -94,6 +100,12 @@ if [[ "$(dpkg-deb -f "${protobuf_debs[0]}" Package)" != "xgc2-protobuf-dev" ]]; 
   exit 1
 fi
 
+expected_version="${XGC2_PROTOBUF_STANDALONE_DEB_VERSION}~${distribution}"
+if [[ "$(dpkg-deb -f "${protobuf_debs[0]}" Version)" != "${expected_version}" ||
+      "$(dpkg-deb -f "${protobuf_debs[0]}" Architecture)" != all ]]; then
+  echo "protobuf artifact must be ${expected_version} (Architecture all)" >&2
+  exit 1
+fi
 install -m 0644 "${protobuf_debs[0]}" "${output_dir}/"
 echo "Fetched ${artifact_name} from successful protobuf run ${run_id} at ${run_head_sha}:"
 dpkg-deb -f "${output_dir}/$(basename "${protobuf_debs[0]}")" \

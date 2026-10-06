@@ -36,7 +36,7 @@ for file in "${required[@]}"; do
 done
 
 (
-  unset XGC2_PROTOBUF_PROTOCOL_VERSION XGC2_PROTOBUF_STANDALONE_SOURCE_REF
+  unset XGC2_PROTOBUF_PROTOCOL_VERSION XGC2_PROTOBUF_STANDALONE_SOURCE_REF XGC2_PROTOBUF_STANDALONE_DEB_VERSION
   # shellcheck source=../dependencies/xgc2-protobuf.env
   source .xgc2/dependencies/xgc2-protobuf.env
   if [[ ! "${XGC2_PROTOBUF_PROTOCOL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -47,8 +47,9 @@ done
     echo "standalone protobuf dependency must be a full source SHA" >&2
     exit 1
   fi
-  if [[ "${XGC2_PROTOBUF_PROTOCOL_VERSION}" != "0.5.0" ||
-        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "cd0b18754f6fb4d66fcd99b5d95032f693c391b4" ]]; then
+  if [[ "${XGC2_PROTOBUF_STANDALONE_DEB_VERSION}" != "0.5.0-19" ||
+        "${XGC2_PROTOBUF_PROTOCOL_VERSION}" != "0.5.0" ||
+        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "952ed81c7ef0a9a7650f6d0d72ac8deb4a93f453" ]]; then
     echo "protobuf standalone source is not the supported RuntimeLink protocol contract" >&2
     exit 1
   fi
@@ -113,8 +114,8 @@ if product.get("kind") != "toolchain-apt":
 version = product.get("version")
 if not isinstance(version, str) or not version:
     raise SystemExit("product metadata version is missing")
-if version != "0.6.0-14":
-    raise SystemExit("product metadata version must be 0.6.0-14")
+if version != "0.6.0-16":
+    raise SystemExit("product metadata version must be 0.6.0-16")
 
 apt = product.get("apt")
 if not isinstance(apt, dict):
@@ -247,3 +248,6 @@ grep -Fq "libxgc2_adapter_runtime_client 2 \${runtime_package} (>= \${version})"
   .xgc2/scripts/build_deb.sh
 
 echo "Adapter Runtime split package compliance checks passed."
+grep -Fq -- '--download-protobuf' .xgc2/scripts/fetch_protobuf_deb.sh
+grep -Fq 'APT_CONFIG="${temporary}/apt.conf" apt-get download' .xgc2/scripts/configure_xgc2_apt.sh
+grep -Fq 'XGC2_DEPENDENCY_SET_DIGEST' .xgc2/scripts/configure_xgc2_apt.sh
