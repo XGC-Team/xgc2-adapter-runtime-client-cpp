@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-locked_source_ref="952ed81c7ef0a9a7650f6d0d72ac8deb4a93f453"
+locked_source_ref="3dba314e6a8874825767fb7c6f0cac36226f2465"
 
 # shellcheck source=../dependencies/xgc2-protobuf.env
 source "${repo_root}/.xgc2/dependencies/xgc2-protobuf.env"
@@ -56,7 +56,7 @@ while (( $# > 0 )); do
 done
 test -n "${destination}"
 mkdir -p "${destination}"
-: > "${destination}/xgc2-protobuf-dev_0.5.0-19~focal_all.deb"
+: > "${destination}/xgc2-protobuf-dev_0.5.0-20~focal_all.deb"
 MOCK
 
 cat > "${mock_bin}/dpkg-deb" <<'MOCK'
@@ -68,11 +68,11 @@ fi
 if [[ $# -eq 3 ]]; then
   case "${3:-}" in
     Package) printf 'xgc2-protobuf-dev\n'; exit 0 ;;
-    Version) printf '%s\n' "${MOCK_PROTO_VERSION:-0.5.0-19~focal}"; exit 0 ;;
+    Version) printf '%s\n' "${MOCK_PROTO_VERSION:-0.5.0-20~focal}"; exit 0 ;;
     Architecture) printf '%s\n' "${MOCK_PROTO_ARCHITECTURE:-all}"; exit 0 ;;
   esac
 fi
-printf 'Package: xgc2-protobuf-dev\nVersion: 0.5.0-19~focal\nArchitecture: all\n'
+printf 'Package: xgc2-protobuf-dev\nVersion: 0.5.0-20~focal\nArchitecture: all\n'
 MOCK
 
 chmod +x "${mock_bin}/gh" "${mock_bin}/unzip" "${mock_bin}/dpkg-deb"
@@ -100,7 +100,7 @@ env -u XGC2_APT_OVERLAY_URL -u XGC2_DEPENDENCY_SET_DIGEST \
   "${repo_root}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${success_output}" \
   > "${temporary}/success.stdout"
 
-test -f "${success_output}/xgc2-protobuf-dev_0.5.0-19~focal_all.deb"
+test -f "${success_output}/xgc2-protobuf-dev_0.5.0-20~focal_all.deb"
 grep -Fq -- "--commit ${locked_source_ref}" "${MOCK_GH_LOG}"
 grep -Fq -- '--event push' "${MOCK_GH_LOG}"
 grep -Fq -- '--status success' "${MOCK_GH_LOG}"
@@ -114,7 +114,7 @@ if env -u XGC2_APT_OVERLAY_URL -u XGC2_DEPENDENCY_SET_DIGEST \
   echo "standalone fetch accepted Proto18 for the exact Proto19 source contract" >&2
   exit 1
 fi
-grep -Fq 'must be 0.5.0-19~focal' "${temporary}/wrong-version.stderr"
+grep -Fq 'must be 0.5.0-20~focal' "${temporary}/wrong-version.stderr"
 
 cat > "${mock_bin}/curl" <<'MOCK'
 #!/usr/bin/env python3
@@ -128,14 +128,14 @@ if url.endswith(".gpg"):
     output.write_text("fixture key")
 else:
     assert url.startswith(os.environ.get("MOCK_APT_SOURCE", "https://overlay.example/staging/test-sdk16") + "/manifests/xgc2-protobuf/focal/amd64/")
-    version = os.environ.get("MOCK_PROTO_VERSION", "0.5.0-19~focal")
+    version = os.environ.get("MOCK_PROTO_VERSION", "0.5.0-20~focal")
     body = b"scoped artifact\n"
     digest = hashlib.sha256(body).hexdigest()
     if os.environ.get("MOCK_BAD_HASH"):
         digest = "0" * 64
     output.write_text(json.dumps({
         "schema": "xgc2.release-artifact.v1", "product": "xgc2-protobuf",
-        "version": "0.5.0-19", "source_sha": os.environ.get("MOCK_PROVIDER_SOURCE", os.environ["MOCK_RUN_HEAD_SHA"]),
+        "version": "0.5.0-20", "source_sha": os.environ.get("MOCK_PROVIDER_SOURCE", os.environ["MOCK_RUN_HEAD_SHA"]),
         "distribution": "focal", "architecture": "amd64", "release_id": os.environ.get("MOCK_RELEASE_ID", "test-sdk16"), "release_lock_digest": "c" * 64,
         "debs": [{"file": "xgc2-protobuf-dev_" + version + "_all.deb", "package": "xgc2-protobuf-dev",
                   "version": version, "architecture": "all", "size": len(body), "sha256": digest}]}))
@@ -168,8 +168,8 @@ with open(os.environ["MOCK_APT_LOG"], "a") as log:
 if sys.argv[1:] == ["update"]:
     if os.environ.get("MOCK_OVERLAY_FAILURE"):
         raise SystemExit("fixture signed overlay unavailable")
-elif sys.argv[1:] == ["download", "xgc2-protobuf-dev=0.5.0-19~focal"]:
-    version = os.environ.get("MOCK_PROTO_VERSION", "0.5.0-19~focal")
+elif sys.argv[1:] == ["download", "xgc2-protobuf-dev=0.5.0-20~focal"]:
+    version = os.environ.get("MOCK_PROTO_VERSION", "0.5.0-20~focal")
     pathlib.Path("xgc2-protobuf-dev_" + version + "_all.deb").write_bytes(b"scoped artifact\n")
 else:
     raise SystemExit("unexpected host APT operation: " + repr(sys.argv[1:]))
@@ -185,13 +185,13 @@ PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="${locked_source_ref}" \
   XGC2_APT_OVERLAY_URL="${overlay}" XGC2_DEPENDENCY_SET_DIGEST="${digest}" \
   "${repo_root}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${temporary}/scoped-success" \
   > "${temporary}/scoped-success.stdout"
-test -f "${temporary}/scoped-success/xgc2-protobuf-dev_0.5.0-19~focal_all.deb"
+test -f "${temporary}/scoped-success/xgc2-protobuf-dev_0.5.0-20~focal_all.deb"
 test ! -s "${MOCK_GH_LOG}"
-grep -Fq "Fetched scoped Proto 0.5.0-19~focal from ${overlay}" "${temporary}/scoped-success.stdout"
+grep -Fq "Fetched scoped Proto 0.5.0-20~focal from ${overlay}" "${temporary}/scoped-success.stdout"
 python3 - "${MOCK_APT_LOG}" <<'PYCHECK'
 import json, pathlib, sys
 calls = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
-assert [call["args"] for call in calls] == [["update"], ["download", "xgc2-protobuf-dev=0.5.0-19~focal"]]
+assert [call["args"] for call in calls] == [["update"], ["download", "xgc2-protobuf-dev=0.5.0-20~focal"]]
 assert all(not pathlib.Path(call["config"]).exists() for call in calls), "temporary APT configuration leaked"
 PYCHECK
 
@@ -202,7 +202,7 @@ PATH="${mock_bin}:${PATH}" MOCK_RUN_HEAD_SHA="${locked_source_ref}" \
   XGC2_DEPENDENCY_SET_DIGEST="${digest}" \
   "${repo_root}/.xgc2/scripts/fetch_protobuf_deb.sh" focal "${temporary}/explicit-production" \
   > "${temporary}/explicit-production.stdout"
-test -f "${temporary}/explicit-production/xgc2-protobuf-dev_0.5.0-19~focal_all.deb"
+test -f "${temporary}/explicit-production/xgc2-protobuf-dev_0.5.0-20~focal_all.deb"
 test ! -s "${MOCK_GH_LOG}"
 
 for failure in missing-digest old-version foreign-source foreign-release bad-hash bad-key unavailable; do

@@ -47,9 +47,9 @@ done
     echo "standalone protobuf dependency must be a full source SHA" >&2
     exit 1
   fi
-  if [[ "${XGC2_PROTOBUF_STANDALONE_DEB_VERSION}" != "0.5.0-19" ||
+  if [[ "${XGC2_PROTOBUF_STANDALONE_DEB_VERSION}" != "0.5.0-20" ||
         "${XGC2_PROTOBUF_PROTOCOL_VERSION}" != "0.5.0" ||
-        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "952ed81c7ef0a9a7650f6d0d72ac8deb4a93f453" ]]; then
+        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "3dba314e6a8874825767fb7c6f0cac36226f2465" ]]; then
     echo "protobuf standalone source is not the supported RuntimeLink protocol contract" >&2
     exit 1
   fi
@@ -114,8 +114,8 @@ if product.get("kind") != "toolchain-apt":
 version = product.get("version")
 if not isinstance(version, str) or not version:
     raise SystemExit("product metadata version is missing")
-if version != "0.6.0-16":
-    raise SystemExit("product metadata version must be 0.6.0-16")
+if version != "0.6.0-17":
+    raise SystemExit("product metadata version must be 0.6.0-17")
 
 apt = product.get("apt")
 if not isinstance(apt, dict):

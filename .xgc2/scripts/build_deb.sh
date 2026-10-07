@@ -71,7 +71,7 @@ cmake -S "${repo_root}" -B "${build_dir}" \
   -DCMAKE_INSTALL_PREFIX=/usr \
   -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG" \
   -DXGC2_ADAPTER_RUNTIME_CLIENT_BUILD_TESTING=OFF
-cmake --build "${build_dir}" -- -j"$(nproc)"
+cmake --build "${build_dir}" -- -j"${BUILD_JOBS:-$(nproc)}"
 DESTDIR="${stage_dir}" cmake --build "${build_dir}" --target install
 
 stage_lib_dir="${stage_dir}/usr/lib/${multiarch}"
