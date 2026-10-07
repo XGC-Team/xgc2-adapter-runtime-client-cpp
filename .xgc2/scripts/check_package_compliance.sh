@@ -49,7 +49,7 @@ done
   fi
   if [[ "${XGC2_PROTOBUF_STANDALONE_DEB_VERSION}" != "0.5.0-20" ||
         "${XGC2_PROTOBUF_PROTOCOL_VERSION}" != "0.5.0" ||
-        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "3dba314e6a8874825767fb7c6f0cac36226f2465" ]]; then
+        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "99f301ee8725e91ae8149becce92377ea8fbecb0" ]]; then
     echo "protobuf standalone source is not the supported RuntimeLink protocol contract" >&2
     exit 1
   fi

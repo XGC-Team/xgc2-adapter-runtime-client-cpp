@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-locked_source_ref="3dba314e6a8874825767fb7c6f0cac36226f2465"
+locked_source_ref="99f301ee8725e91ae8149becce92377ea8fbecb0"
 
 # shellcheck source=../dependencies/xgc2-protobuf.env
 source "${repo_root}/.xgc2/dependencies/xgc2-protobuf.env"
