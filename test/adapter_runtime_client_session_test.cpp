@@ -1,4 +1,7 @@
+#include <fcntl.h>
 #include <google/protobuf/util/message_differencer.h>
+
+#include <future>
 
 #include "../src/internal.hpp"
 #include "adapter_runtime_client_test_support.hpp"
@@ -328,9 +331,48 @@ TEST_F(AdapterRuntimeClientTest, BootstrapReadIsNoFollowAndSizeBounded) {
   std::remove(oversized_path.c_str());
 }
 
-TEST_F(AdapterRuntimeClientTest, RejectsNonUnixAndNonCanonicalRuntimeTargets) {
+TEST_F(AdapterRuntimeClientTest, RejectsOwnedFifoBootstrapWithoutWaitingForWriter) {
+  const std::string fifo_path = fixture_directory_ + "/bootstrap.fifo";
+  ASSERT_EQ(::mkfifo(fifo_path.c_str(), 0600), 0);
+  struct stat metadata {};
+  ASSERT_EQ(::lstat(fifo_path.c_str(), &metadata), 0);
+  ASSERT_TRUE(S_ISFIFO(metadata.st_mode));
+  ASSERT_EQ(metadata.st_mode & 0777, 0600);
+  std::promise<bool> result;
+  auto completion = result.get_future();
+  const auto started = std::chrono::steady_clock::now();
+  std::thread reader([&] {
+    try {
+      (void)xgc2::adapter_runtime::ClientConfig::FromBootstrapFile(fifo_path);
+      result.set_value(false);
+    } catch (const std::runtime_error&) {
+      result.set_value(true);
+    } catch (...) {
+      result.set_value(false);
+    }
+  });
+  const bool completed_without_writer =
+      completion.wait_for(std::chrono::milliseconds(500)) == std::future_status::ready;
+  if (!completed_without_writer) {
+    // Rescue only a regressed blocking FIFO open so the native test can report
+    // failure and join its actual reader rather than leak a blocked thread.
+    const int rescue = ::open(fifo_path.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+    EXPECT_GE(rescue, 0);
+    if (rescue >= 0) ::close(rescue);
+  }
+  reader.join();
+  EXPECT_TRUE(completed_without_writer);
+  EXPECT_TRUE(completion.get());
+  EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(500));
+  EXPECT_EQ(service_->registration_attempts(), 0);
+  ASSERT_EQ(::lstat(fifo_path.c_str(), &metadata), 0);
+  EXPECT_TRUE(S_ISFIFO(metadata.st_mode));
+}
+
+TEST_F(AdapterRuntimeClientTest, RejectsNonCanonicalRuntimeServiceEndpoints) {
   const auto reject_target = [&](const std::string& runtime_target) {
-    bootstrap_.set_runtime_target(runtime_target);
+    bootstrap_.mutable_runtime_service()->mutable_endpoint()->set_address(
+        runtime_target);
     std::ofstream output(bootstrap_path_,
                          std::ios::out | std::ios::binary | std::ios::trunc);
     ASSERT_TRUE(bootstrap_.SerializeToOstream(&output));
@@ -348,9 +390,9 @@ TEST_F(AdapterRuntimeClientTest, RejectsNonUnixAndNonCanonicalRuntimeTargets) {
 
   reject_target("dns:///runtime.example:443");
   reject_target("127.0.0.1:50051");
-  reject_target("unix:relative/runtime.sock");
-  reject_target("unix:/run/xgc2/../runtime.sock");
-  reject_target("unix:/run//xgc2/runtime.sock");
+  reject_target("relative/runtime.sock");
+  reject_target("/run/xgc2/../runtime.sock");
+  reject_target("/run//xgc2/runtime.sock");
 }
 
 class PairReconnectTest : public AdapterRuntimeClientTest {
@@ -545,7 +587,8 @@ TEST_F(PairReconnectTest, ExhaustedPairBudgetReportsOneTerminalSessionLoss) {
     std::unique_lock<std::mutex> lock(loss_mutex);
     ASSERT_TRUE(loss_condition.wait_for(lock, std::chrono::seconds(5),
                                         [&] { return loss_count == 1; }));
-    EXPECT_NE(loss_reason.find("reconnect budget exhausted"), std::string::npos);
+    EXPECT_NE(loss_reason.find("reconnect budget exhausted"), std::string::npos)
+        << loss_reason;
   }
 
   EXPECT_EQ(service_->control_epochs(), (std::vector<std::uint64_t>{1}));
@@ -554,7 +597,8 @@ TEST_F(PairReconnectTest, ExhaustedPairBudgetReportsOneTerminalSessionLoss) {
   EXPECT_EQ(service_->registrations(), 1);
   EXPECT_EQ(client.session().last_error.find("reconnect budget exhausted") !=
                 std::string::npos,
-            true);
+            true)
+      << client.session().last_error;
   EXPECT_EQ(client.session().state, xgc2::adapter_runtime::ClientState::kSessionLost);
   client.Stop();
 }
@@ -636,4 +680,213 @@ TEST_F(SpecReplacementTest, OnlyANewSpecRestartsNativeApplicationState) {
   client.Stop();
   EXPECT_EQ(stops.load(), 2);
   EXPECT_EQ(clears.load(), 2);
+}
+
+TEST_F(AdapterRuntimeClientTest, TypedBootstrapBindsFreshRandomHexServiceInstance) {
+  const auto config =
+      xgc2::adapter_runtime::ClientConfig::FromBootstrapFile(bootstrap_path_);
+  const auto& reference = config.runtime_service();
+  ASSERT_EQ(reference.instance_id().size(), 32U);
+  EXPECT_TRUE(std::all_of(
+      reference.instance_id().begin(), reference.instance_id().end(), [](char digit) {
+        return (digit >= '0' && digit <= '9') || (digit >= 'a' && digit <= 'f');
+      }));
+  EXPECT_EQ(reference.instance_id(), admission_->instance_id());
+  EXPECT_EQ(reference.endpoint().address(), socket_path_);
+  EXPECT_EQ(reference.endpoint().kind(), "unix");
+  EXPECT_EQ(reference.profile(), "grpc.v1");
+  EXPECT_NE(TestBootstrap("unix:" + socket_path_).runtime_service().instance_id(),
+            reference.instance_id());
+  struct stat metadata {};
+  ASSERT_EQ(::stat(fixture_directory_.c_str(), &metadata), 0);
+  EXPECT_EQ(metadata.st_mode & 0777, 0700);
+}
+
+TEST_F(AdapterRuntimeClientTest,
+       StaleServiceInstanceCannotConsumeBootstrapOrReachDomain) {
+  auto stale = bootstrap_;
+  stale.mutable_runtime_service()->set_instance_id(xgc2::xrpc::new_instance_id());
+  ASSERT_NE(stale.runtime_service().instance_id(), admission_->instance_id());
+  std::ofstream output(bootstrap_path_,
+                       std::ios::out | std::ios::binary | std::ios::trunc);
+  ASSERT_TRUE(stale.SerializeToOstream(&output));
+  output.close();
+  ASSERT_EQ(::chmod(bootstrap_path_.c_str(), 0600), 0);
+  auto config = xgc2::adapter_runtime::ClientConfig::FromBootstrapFile(bootstrap_path_);
+  config.initial_connect_timeout_ms = 1000;
+  BindProtocolFixture(&config);
+  xgc2::adapter_runtime::Client client(std::move(config), {});
+  std::string error;
+  EXPECT_FALSE(client.Start(&error));
+  EXPECT_NE(error.find("instance"), std::string::npos) << error;
+  EXPECT_EQ(service_->registration_attempts(), 0);
+  EXPECT_EQ(service_->registrations(), 0);
+  EXPECT_TRUE(service_->control_epochs().empty());
+  EXPECT_TRUE(service_->paired_epochs().empty());
+  EXPECT_GE(server_->stats().rejected_calls, 1U);
+  client.Stop();
+}
+
+TEST_F(AdapterRuntimeClientTest,
+       UnsupportedUnknownAndOverCeilingClientPolicyNeverRegisters) {
+  auto config = xgc2::adapter_runtime::ClientConfig::FromBootstrapFile(bootstrap_path_);
+  for (const auto& invalid : std::vector<std::pair<std::string, std::string>>{
+           {"XGC2_XRPC_UNKNOWN", "1"},
+           {"XGC2_XRPC_CALL_TIMEOUT_MS", "30001"},
+           {"XGC2_XRPC_HOST_MAX_IN_FLIGHT", "1"}}) {
+    EXPECT_THROW(config.ApplyXrpcEnvironment({invalid}),
+                 xgc2::xrpc::RuntimePolicyError);
+  }
+  EXPECT_EQ(service_->registration_attempts(), 0);
+  EXPECT_EQ(server_->stats().admitted_calls, 0U);
+}
+
+class FinitePairRenewalTest : public AdapterRuntimeClientTest {
+ protected:
+  FakeRuntimeLink::Scenario scenario() const override {
+    return FakeRuntimeLink::Scenario::kFinitePairRenewals;
+  }
+};
+
+TEST_F(FinitePairRenewalTest,
+       SharedFinitePolicyRenewsPairsWithoutRegisterOrMutationReplay) {
+  using namespace std::chrono;
+  const auto budget = milliseconds(450);
+  auto config = xgc2::adapter_runtime::ClientConfig::FromBootstrapFile(bootstrap_path_);
+  config.ApplyXrpcEnvironment({{"XGC2_XRPC_CALL_TIMEOUT_MS", "450"},
+                               {"XGC2_XRPC_MAX_REQUEST_BYTES", "1048576"}});
+  bool observed_budget = false, observed_bytes = false;
+  for (const auto& field : config.xrpc_runtime_policy().fields()) {
+    if (field.name() == "CALL_TIMEOUT_MS")
+      observed_budget = field.integer_value() == budget.count() &&
+                        field.source() == "environment" && field.has_ceiling() &&
+                        field.ceiling() == 30000;
+    if (field.name() == "MAX_REQUEST_BYTES")
+      observed_bytes =
+          field.integer_value() == 1048576 && field.source() == "environment";
+  }
+  ASSERT_TRUE(observed_budget && observed_bytes);
+  EXPECT_GT(config.xrpc_runtime_policy().revision(), 0U);
+  config.rpc_timeout_ms = 5000;  // Transport policy remains the tighter budget.
+  config.initial_connect_timeout_ms = 2000;
+  config.reconnect_initial_delay_ms = 5;
+  config.reconnect_max_delay_ms = 5;
+  config.maximum_pair_reconnect_attempts = 1;
+  std::atomic<int> native_mutations{0}, starts{0}, readies{0}, stops{0}, applies{0},
+      clears{0};
+  auto enabled = ProtocolFixtureCallbacks();
+  enabled.operation = [&](const xgc::adapter::v1::OperationRequest& request,
+                          const xgc2::adapter_runtime::CancellationToken&) {
+    EXPECT_EQ(request.context().work_id(), "renewal-operation");
+    ++native_mutations;
+    return xgc2::adapter_runtime::OperationResult::Success();
+  };
+  enabled.start = [&](const xgc::adapter::v1::AdapterInstanceSpec&,
+                      const xgc::adapter::v1::EnabledCapability&, std::string*) {
+    ++starts;
+    return true;
+  };
+  enabled.ready = [&] { ++readies; };
+  enabled.stop = [&] { ++stops; };
+  std::string bind_error;
+  ASSERT_TRUE(config.BindCapability(kCapabilityId, kContractVersion, kContractDigest,
+                                    std::move(enabled), &bind_error))
+      << bind_error;
+  ASSERT_TRUE(config.BindCapability("test.disabled", kContractVersion,
+                                    kDisabledContractDigest, {}, &bind_error))
+      << bind_error;
+  xgc2::adapter_runtime::ClientCallbacks callbacks;
+  callbacks.apply_instance_spec = [&](const xgc::adapter::v1::AdapterInstanceSpec&,
+                                      std::string*) {
+    ++applies;
+    return true;
+  };
+  callbacks.clear_instance_spec = [&] { ++clears; };
+  xgc2::adapter_runtime::Client client(std::move(config), std::move(callbacks));
+  std::string error;
+  ASSERT_TRUE(client.Start(&error)) << error;
+  ASSERT_TRUE(service_->WaitForRenewedOperation());
+  // No listener restart, failure injection, or new Register: the only cause
+  // of these replacements is the native transport's finite pair deadline.
+  ASSERT_TRUE(service_->WaitForPairAttachments(3));
+  EXPECT_EQ(service_->registration_attempts(), 1);
+  EXPECT_EQ(service_->registrations(), 1);
+  EXPECT_EQ(service_->renewal_operation_requests(), 1);
+  EXPECT_EQ(native_mutations.load(), 1);
+  EXPECT_EQ(starts.load(), 1);
+  EXPECT_EQ(readies.load(), 1);
+  EXPECT_EQ(stops.load(), 0);
+  EXPECT_EQ(applies.load(), 1);
+  EXPECT_EQ(clears.load(), 0);
+  const auto control = service_->control_deadlines();
+  const auto work = service_->work_deadlines();
+  const auto registrations = service_->register_deadlines();
+  ASSERT_EQ(registrations.size(), 1U);
+  ASSERT_GE(control.size(), 3U);
+  ASSERT_GE(work.size(), 3U);
+  for (const auto& call : registrations) {
+    EXPECT_NE(call.deadline, system_clock::time_point::max());
+    EXPECT_GT(call.deadline, call.admitted_at);
+    EXPECT_LE(call.deadline - call.admitted_at, budget);
+  }
+  for (std::size_t pair = 0; pair != 3; ++pair) {
+    for (const auto& call : {control[pair], work[pair]}) {
+      EXPECT_NE(call.deadline, system_clock::time_point::max());
+      EXPECT_GT(call.deadline, call.admitted_at);
+      EXPECT_LE(call.deadline - call.admitted_at, budget);
+    }
+    const auto difference = control[pair].deadline > work[pair].deadline
+                                ? control[pair].deadline - work[pair].deadline
+                                : work[pair].deadline - control[pair].deadline;
+    EXPECT_LE(difference, milliseconds(8));  // Native gRPC millisecond rounding.
+    if (pair) {
+      EXPECT_GT(control[pair].deadline, control[pair - 1].deadline);
+    }
+  }
+  EXPECT_EQ(client.session().state, xgc2::adapter_runtime::ClientState::kReady);
+  client.Stop();
+  EXPECT_EQ(stops.load(), 1);
+  EXPECT_EQ(clears.load(), 1);
+  EXPECT_EQ(native_mutations.load(), 1);
+}
+
+TEST_F(AdapterRuntimeClientTest, SdkFixturePreservesBusyEndpointAndForeignFile) {
+  struct stat owned_before {};
+  ASSERT_EQ(::lstat(socket_path_.c_str(), &owned_before), 0);
+  xgc2::xrpc::UnixOptions duplicate;
+  duplicate.path = socket_path_;
+  xgc2::xrpc::GrpcAdmission competitor(xgc2::xrpc::new_instance_id());
+  EXPECT_THROW((xgc2::xrpc::GrpcUnixServer(
+                   duplicate, competitor, std::vector<grpc::Service*>{service_.get()})),
+               std::exception);
+  struct stat owned_after {};
+  ASSERT_EQ(::lstat(socket_path_.c_str(), &owned_after), 0);
+  EXPECT_EQ(owned_before.st_dev, owned_after.st_dev);
+  EXPECT_EQ(owned_before.st_ino, owned_after.st_ino);
+
+  const auto foreign_path = fixture_directory_ + "/foreign.sock";
+  {
+    std::ofstream foreign(foreign_path);
+    foreign << "foreign-native-owner";
+  }
+  struct stat foreign_before {};
+  ASSERT_EQ(::lstat(foreign_path.c_str(), &foreign_before), 0);
+  xgc2::xrpc::UnixOptions forbidden;
+  forbidden.path = foreign_path;
+  FakeRuntimeLink isolated(bootstrap_.initial_spec());
+  isolated.UseAdmission(
+      std::make_shared<xgc2::xrpc::GrpcAdmission>(competitor.instance_id()));
+  EXPECT_THROW((xgc2::xrpc::GrpcUnixServer(forbidden, competitor,
+                                           std::vector<grpc::Service*>{&isolated})),
+               std::exception);
+  struct stat foreign_after {};
+  ASSERT_EQ(::lstat(foreign_path.c_str(), &foreign_after), 0);
+  EXPECT_EQ(foreign_before.st_dev, foreign_after.st_dev);
+  EXPECT_EQ(foreign_before.st_ino, foreign_after.st_ino);
+  std::string contents;
+  {
+    std::ifstream foreign(foreign_path);
+    std::getline(foreign, contents);
+  }
+  EXPECT_EQ(contents, "foreign-native-owner");
 }

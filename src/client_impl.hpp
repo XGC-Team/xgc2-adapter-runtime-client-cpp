@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "internal.hpp"
+#include "rpc_policy.hpp"
 #include "xgc/adapter/v1/adapter.grpc.pb.h"
 #include "xgc2/adapter_runtime/client.hpp"
 
@@ -49,6 +50,7 @@ class Client::Impl {
     std::uint32_t maximum_control_frame_bytes = 0;
     std::uint32_t maximum_work_frame_bytes = 0;
     std::uint64_t connection_epoch = 0;
+    std::chrono::steady_clock::time_point transport_deadline{};
   };
 
   struct ActiveCapability {

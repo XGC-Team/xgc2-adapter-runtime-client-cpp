@@ -1,7 +1,7 @@
 schema: xgc2.product.v1
 id: libxgc2-adapter-runtime-client-dev
 name: XGC2 Adapter Runtime C++ SDK
-version: 0.6.0-17
+version: 0.7.0-1
 kind: toolchain-apt
 summary: Generic C++ SDK for capability-first XGC2 AdapterRuntimeLink sessions, generated
   protocol bindings, fencing, dispatch, and flow control.
@@ -10,11 +10,13 @@ apt:
   install:
   - libxgc2-adapter-runtime-client-dev
   packages:
-  - libxgc2-adapter-runtime-client2
+  - libxgc2-adapter-runtime-client3
   - libxgc2-adapter-runtime-client-dev
   depends:
   - xgc2-protobuf-dev
   - libgrpc++-dev
+  - libxgc2-xrpc-grpc-dev
+  - libxgc2-xrpc-grpc1
   - libprotobuf-dev
 usage:
   install: 'sudo apt update
@@ -33,7 +35,7 @@ usage:
 
     package preserves the existing build interface and pulls the separate
 
-    libxgc2-adapter-runtime-client2 SONAME package. Runtime applications depend
+    libxgc2-adapter-runtime-client3 SONAME package. Runtime applications depend
 
     only on that ABI package and its generated shlibs dependencies.
 
@@ -42,8 +44,8 @@ ownership:
   paths:
   - /usr/include/xgc2/adapter_runtime
   - /usr/include/xgc
-  - /usr/lib/*/libxgc2_adapter_runtime_client.so.2
-  - /usr/lib/*/libxgc2_adapter_runtime_protocol.so.2
+  - /usr/lib/*/libxgc2_adapter_runtime_client.so.3
+  - /usr/lib/*/libxgc2_adapter_runtime_protocol.so.3
   - /usr/lib/*/libxgc2_adapter_runtime_client.so*
   - /usr/lib/*/libxgc2_adapter_runtime_protocol.so*
   - /usr/lib/*/cmake/xgc2_adapter_runtime_client
@@ -53,9 +55,13 @@ release:
   ref: main
   workflow: release.yml
   ci_workflow: ci.yml
+  requires:
+  - xgc2-protobuf
+  - xgc2-xrpc
   dependency_policy:
     xgc2-protobuf: rebuild
+    xgc2-xrpc: rebuild
   apt_versions:
-    focal: 0.6.0-17~focal
-    jammy: 0.6.0-17~jammy
-    noble: 0.6.0-17~noble
+    focal: 0.7.0-1~focal
+    jammy: 0.7.0-1~jammy
+    noble: 0.7.0-1~noble

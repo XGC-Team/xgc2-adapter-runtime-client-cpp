@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "xgc/adapter/v1/adapter.pb.h"
@@ -16,7 +17,8 @@ namespace adapter_runtime {
 
 namespace internal {
 class ClientConfigAccess;
-}
+struct RpcTransportPolicy;
+}  // namespace internal
 
 enum class LogLevel {
   kDebug,
@@ -172,13 +174,23 @@ class ClientConfig {
   // proofs and contracts come only from this trusted Supervisor handoff.
   static ClientConfig FromBootstrapFile(const std::string& path);
 
+  // The process composition root passes its startup snapshot explicitly. The
+  // library never reads getenv or watches changes. Unsupported fields fail.
+  void ApplyXrpcEnvironment(
+      const std::vector<std::pair<std::string, std::string>>& environment);
+  const xgc::adapter::v1::RuntimePolicySnapshot& xrpc_runtime_policy() const noexcept {
+    return xrpc_runtime_policy_;
+  }
+
   // Attaches application callbacks to an exact trusted bootstrap contract.
   // A handler cannot introduce or widen a capability contract.
-  bool BindCapability(std::string capability_id, std::uint32_t contract_version,
-                      std::string contract_digest, CapabilityCallbacks callbacks,
+  bool BindCapability(const std::string& capability_id, std::uint32_t contract_version,
+                      const std::string& contract_digest, CapabilityCallbacks callbacks,
                       std::string* error = nullptr);
 
-  const std::string& runtime_target() const noexcept { return runtime_target_; }
+  const xgc::adapter::v1::RuntimeServiceReference& runtime_service() const noexcept {
+    return runtime_service_;
+  }
   const xgc::adapter::v1::RegisterRequest& registration() const noexcept {
     return registration_;
   }
@@ -212,13 +224,16 @@ class ClientConfig {
 
  private:
   friend class internal::ClientConfigAccess;
+  friend class Client;
 
   ClientConfig() = default;
 
-  std::string runtime_target_;
+  xgc::adapter::v1::RuntimeServiceReference runtime_service_;
   xgc::adapter::v1::RegisterRequest registration_;
   xgc::adapter::v1::AdapterInstanceSpec initial_spec_;
   std::vector<CapabilityBinding> capabilities_;
+  std::shared_ptr<const internal::RpcTransportPolicy> xrpc_transport_;
+  xgc::adapter::v1::RuntimePolicySnapshot xrpc_runtime_policy_;
 };
 
 struct SessionSnapshot {

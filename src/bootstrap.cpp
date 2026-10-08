@@ -114,7 +114,7 @@ bool ValidateEndpointShape(const xgc::adapter::v1::CapabilityEndpointContract& e
 }  // namespace
 
 bool Client::Impl::ValidateConfig(std::string* error) const {
-  if (!internal::ValidateRuntimeTarget(config_.runtime_target(), error)) {
+  if (!internal::ValidateRuntimeService(config_.runtime_service(), error)) {
     return false;
   }
 

@@ -16,6 +16,7 @@ required=(
   src/bootstrap.cpp src/client.cpp src/client_impl.hpp src/control.cpp
   src/digest.cpp src/dispatch.cpp src/internal.hpp src/queue.cpp src/session.cpp
   src/session_state.cpp src/source_dispatch.cpp src/spec.cpp src/stream.cpp src/work.cpp
+  src/rpc_policy.cpp src/rpc_policy.hpp
   test/adapter_runtime_client_cancellation_test.cpp
   test/adapter_runtime_client_handler_test.cpp
   test/adapter_runtime_client_session_test.cpp
@@ -47,9 +48,9 @@ done
     echo "standalone protobuf dependency must be a full source SHA" >&2
     exit 1
   fi
-  if [[ "${XGC2_PROTOBUF_STANDALONE_DEB_VERSION}" != "0.5.0-20" ||
-        "${XGC2_PROTOBUF_PROTOCOL_VERSION}" != "0.5.0" ||
-        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "99f301ee8725e91ae8149becce92377ea8fbecb0" ]]; then
+  if [[ "${XGC2_PROTOBUF_STANDALONE_DEB_VERSION}" != "0.6.0-1" ||
+        "${XGC2_PROTOBUF_PROTOCOL_VERSION}" != "0.6.0" ||
+        "${XGC2_PROTOBUF_STANDALONE_SOURCE_REF}" != "9ceeb01cc2de0369ed0956a010fad2d85424bc20" ]]; then
     echo "protobuf standalone source is not the supported RuntimeLink protocol contract" >&2
     exit 1
   fi
@@ -114,8 +115,8 @@ if product.get("kind") != "toolchain-apt":
 version = product.get("version")
 if not isinstance(version, str) or not version:
     raise SystemExit("product metadata version is missing")
-if version != "0.6.0-17":
-    raise SystemExit("product metadata version must be 0.6.0-17")
+if version != "0.7.0-1":
+    raise SystemExit("product metadata version must be 0.7.0-1")
 
 apt = product.get("apt")
 if not isinstance(apt, dict):
@@ -127,8 +128,8 @@ distributions = [item.strip() for item in distribution_text.split(",") if item.s
 if not distributions:
     raise SystemExit("product metadata apt.distribution is empty")
 packages = apt.get("packages")
-if not isinstance(packages, list) or "libxgc2-adapter-runtime-client2" not in packages:
-    raise SystemExit("apt.packages must contain libxgc2-adapter-runtime-client2")
+if not isinstance(packages, list) or "libxgc2-adapter-runtime-client3" not in packages:
+    raise SystemExit("apt.packages must contain libxgc2-adapter-runtime-client3")
 
 release = product.get("release")
 if not isinstance(release, dict):
@@ -227,16 +228,16 @@ grep -Fqx "#define XGC2_ADAPTER_RUNTIME_CLIENT_VERSION_MINOR ${version_minor}" \
   include/xgc2/adapter_runtime/version.hpp
 grep -Fqx "#define XGC2_ADAPTER_RUNTIME_CLIENT_VERSION_PATCH ${version_patch}" \
   include/xgc2/adapter_runtime/version.hpp
-grep -q '^#define XGC2_ADAPTER_RUNTIME_CLIENT_ABI_VERSION 2$' \
+grep -q '^#define XGC2_ADAPTER_RUNTIME_CLIENT_ABI_VERSION 3$' \
   include/xgc2/adapter_runtime/version.hpp
 grep -Fqx "constexpr const char* kClientVersion = \"${semantic_version}\";" \
   include/xgc2/adapter_runtime/version.hpp
-if [[ "$(grep -c '^  SOVERSION 2$' CMakeLists.txt)" -ne 2 ]]; then
-  echo "both public shared libraries must expose ABI SONAME 2" >&2
+if [[ "$(grep -c '^  SOVERSION 3$' CMakeLists.txt)" -ne 2 ]]; then
+  echo "both public shared libraries must expose ABI SONAME 3" >&2
   exit 1
 fi
 grep -q '^  COMPATIBILITY ExactVersion$' CMakeLists.txt
-grep -q '^runtime_package="libxgc2-adapter-runtime-client2"$' \
+grep -q '^runtime_package="libxgc2-adapter-runtime-client3"$' \
   .xgc2/scripts/build_deb.sh
 grep -Fq "Depends: \${runtime_package} (= \${version})" \
   .xgc2/scripts/build_deb.sh
@@ -244,7 +245,7 @@ grep -Fq "Breaks: \${dev_package} (<< \${version})" \
   .xgc2/scripts/build_deb.sh
 grep -Fq "Replaces: \${dev_package} (<< \${version})" \
   .xgc2/scripts/build_deb.sh
-grep -Fq "libxgc2_adapter_runtime_client 2 \${runtime_package} (>= \${version})" \
+grep -Fq "libxgc2_adapter_runtime_client 3 \${runtime_package} (>= \${version})" \
   .xgc2/scripts/build_deb.sh
 
 echo "Adapter Runtime split package compliance checks passed."

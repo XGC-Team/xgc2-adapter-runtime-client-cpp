@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(xgc2_adapter_runtime_client VERSION 0.6.0 LANGUAGES CXX)
+project(xgc2_adapter_runtime_client VERSION 0.7.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -10,7 +10,8 @@ option(XGC2_ADAPTER_RUNTIME_CLIENT_BUILD_TESTING
 find_package(Protobuf REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
-pkg_check_modules(XGC2PROTOBUF REQUIRED IMPORTED_TARGET xgc2-protobuf=0.5.0)
+find_package(XgcXrpc 0.1 REQUIRED CONFIG COMPONENTS grpc)
+pkg_check_modules(XGC2PROTOBUF REQUIRED IMPORTED_TARGET xgc2-protobuf=0.6.0)
 find_package(xgc2_protobuf REQUIRED CONFIG)
 pkg_check_modules(GRPCPP REQUIRED IMPORTED_TARGET grpc++)
 
@@ -97,7 +98,7 @@ set_target_properties(xgc2_adapter_runtime_protocol PROPERTIES
   OUTPUT_NAME xgc2_adapter_runtime_protocol
   EXPORT_NAME adapter_runtime_protocol
   VERSION ${PROJECT_VERSION}
-  SOVERSION 2
+  SOVERSION 3
 )
 target_compile_features(xgc2_adapter_runtime_protocol PUBLIC cxx_std_14)
 target_include_directories(xgc2_adapter_runtime_protocol
@@ -117,6 +118,7 @@ add_library(xgc2_adapter_runtime_client SHARED
   src/digest.cpp
   src/dispatch.cpp
   src/queue.cpp
+  src/rpc_policy.cpp
   src/session.cpp
   src/session_state.cpp
   src/source_dispatch.cpp
@@ -129,9 +131,10 @@ set_target_properties(xgc2_adapter_runtime_client PROPERTIES
   OUTPUT_NAME xgc2_adapter_runtime_client
   EXPORT_NAME adapter_runtime_client
   VERSION ${PROJECT_VERSION}
-  SOVERSION 2
+  SOVERSION 3
 )
 target_compile_features(xgc2_adapter_runtime_client PUBLIC cxx_std_14)
+target_compile_features(xgc2_adapter_runtime_client PRIVATE cxx_std_20)
 target_compile_options(xgc2_adapter_runtime_client PRIVATE
   -Wall -Wextra -Wpedantic
 )
@@ -142,7 +145,7 @@ target_include_directories(xgc2_adapter_runtime_client
 )
 target_link_libraries(xgc2_adapter_runtime_client
   PUBLIC xgc2::adapter_runtime_protocol
-  PRIVATE PkgConfig::GRPCPP Threads::Threads
+  PRIVATE XgcXrpc::grpc Threads::Threads
 )
 
 install(TARGETS
@@ -205,7 +208,7 @@ if(XGC2_ADAPTER_RUNTIME_CLIENT_BUILD_TESTING)
       test/adapter_runtime_client_session_test.cpp
       test/adapter_runtime_client_source_test.cpp
     )
-    target_compile_features(adapter_runtime_client_test PRIVATE cxx_std_14)
+    target_compile_features(adapter_runtime_client_test PRIVATE cxx_std_20)
     if(TARGET GTest::gtest)
       set(XGC2_GTEST_TARGET GTest::gtest)
     else()
@@ -219,7 +222,7 @@ if(XGC2_ADAPTER_RUNTIME_CLIENT_BUILD_TESTING)
     target_link_libraries(adapter_runtime_client_test
       PRIVATE
         xgc2::adapter_runtime_client
-        PkgConfig::GRPCPP
+        XgcXrpc::grpc
         ${XGC2_GTEST_TARGET}
         ${XGC2_GTEST_MAIN_TARGET}
         Threads::Threads

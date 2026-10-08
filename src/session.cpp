@@ -87,8 +87,8 @@ bool Client::Impl::Start(std::string* error) {
     dropped_outbound_frames_ = 0;
   }
 
-  channel_ =
-      grpc::CreateChannel(config_.runtime_target(), grpc::InsecureChannelCredentials());
+  channel_ = xgc2::xrpc::make_grpc_unix_channel(
+      config_.runtime_service().endpoint().address(), config_.xrpc_transport_->limits);
   stub_ = xgc::adapter::v1::AdapterRuntimeLinkService::NewStub(channel_);
   for (std::size_t index = 0; index < config_.dispatch_workers; ++index) {
     dispatch_threads_.emplace_back(&Impl::DispatchLoop, this);
@@ -209,6 +209,10 @@ void Client::Impl::SupervisorLoop() {
   std::size_t reconnects_used = 0;
   while (!StopRequested()) {
     SessionFence pair_fence = session_fence;
+    pair_fence.transport_deadline = xgc2::xrpc::grpc_stream_deadline(
+        config_.xrpc_transport_->limits,
+        std::chrono::steady_clock::now() +
+            config_.xrpc_transport_->limits.call_timeout);
     {
       std::lock_guard<std::mutex> lock(mutex_);
       pair_fence.connection_epoch = connection_epoch_counter_;
@@ -314,7 +318,11 @@ void Client::Impl::SupervisorLoop() {
 
 bool Client::Impl::Register(SessionFence* fence, std::string* error) {
   auto context = std::make_shared<grpc::ClientContext>();
-  context->set_deadline(DeadlineAfter(config_.rpc_timeout_ms));
+  const auto budget = std::min(std::chrono::milliseconds(config_.rpc_timeout_ms),
+                               config_.xrpc_transport_->limits.call_timeout);
+  xgc2::xrpc::GrpcClientCall native_call(*context,
+                                         config_.runtime_service().instance_id(),
+                                         std::chrono::steady_clock::now() + budget);
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (registration_attempted_) {
@@ -329,7 +337,8 @@ bool Client::Impl::Register(SessionFence* fence, std::string* error) {
   xgc::adapter::v1::RegisterRequest request = config_.registration();
   request.set_sdk_version(kClientVersion);
   xgc::adapter::v1::RegisterResponse response;
-  const grpc::Status status = stub_->Register(context.get(), request, &response);
+  const grpc::Status status = native_call.invoke(
+      [&] { return stub_->Register(context.get(), request, &response); });
   SecureErase(request.mutable_bootstrap_token());
   internal::ClientConfigAccess::ForgetBootstrapToken(&config_);
   {

@@ -1,6 +1,6 @@
 # xgc2-adapter-runtime-client-cpp
 
-`xgc2-adapter-runtime-client-cpp` is the generic C++14 SDK for
+`xgc2-adapter-runtime-client-cpp` provides a C++14 public interface for
 `xgc.adapter.v1.AdapterRuntimeLinkService`. It owns the complete process-side
 Runtime Link without knowing any native middleware or resource domain.
 
@@ -29,14 +29,19 @@ Every process receives exactly one argument:
 
 The Process Supervisor writes that file as a binary
 `xgc.adapter.v1.AdapterProcessBootstrap`, owned by the process user with mode
-0600. It contains the Runtime target, trusted `RegisterRequest`, and first full
+0600. Format version 3 contains the complete instance-bound Runtime ServiceRef,
+trusted `RegisterRequest`, and first full
 `AdapterInstanceSpec`. Applications do not synthesize instance identity,
 generation, token, definition/build/manifest proof, or capability contracts.
-The Runtime target is restricted to a canonical absolute Unix socket; the SDK
-does not accept TCP, DNS, or relative transport targets.
+The reference must select `xgc2.adapter-runtime-link`, API `v1`, profile `grpc.v1`
+and a canonical absolute Unix endpoint. The hosting service incarnation is
+distinct from the adapter's registration identity. Field 2 of bootstrap is
+reserved, and older bootstrap formats are rejected.
 
 ```cpp
 auto config = xgc2::adapter_runtime::ClientConfig::FromBootstrapFile(path);
+// main supplies one explicit startup snapshot; this library never reads getenv.
+config.ApplyXrpcEnvironment(startup_environment);
 
 // The first complete spec is available before native-runtime initialization.
 const auto& initial = config.initial_spec();
@@ -96,11 +101,24 @@ is gated generically by the exact contract and endpoint grant.
 
 ## Work semantics
 
+The backend uses the shared XRPC C++20 gRPC SDK. Main supplies a single explicit
+`XRPC_*` environment snapshot through `ApplyXrpcEnvironment`; unsupported or
+over-ceiling settings fail before Register. `xrpc_runtime_policy()` exposes the
+effective typed policy, including source, ceiling and unit metadata. The
+library does not read process environment or refresh policy while running.
+
 Register consumes the bootstrap token once and the SDK erases its in-memory
 copies when the RPC completes. The first Adapter-to-Host Work frame is always
 `WorkAttach`, but Work is opened only after the exact spec's successful apply
 result has been written on Control. Control and Work are replaced as one pair,
 using the same `connection_epoch`; failure of either stream fences both halves.
+
+Each Control/Work pair shares one finite native deadline derived from the
+resolved `CALL_TIMEOUT_MS`, with the shared SDK rounding margin. Healthy pairs
+renew within the same registered session after expiry; renewal does not repeat
+Register, lifecycle callbacks or completed native operations. The client owns
+exactly one pair and rejects a configured stream limit below two. Both streams
+verify SDK response identity before the first payload.
 
 Pair replacement remains inside the registered session. It cancels pair-local
 Work and source streams but preserves the committed spec, native capability
@@ -155,7 +173,7 @@ forgotten by FIFO eviction. Host cancellation is acknowledged with
 ## Consume with CMake
 
 ```cmake
-find_package(xgc2_adapter_runtime_client REQUIRED CONFIG)
+find_package(xgc2_adapter_runtime_client 0.7.0 EXACT REQUIRED CONFIG)
 target_link_libraries(my_adapter PRIVATE xgc2::adapter_runtime_client)
 ```
 
@@ -173,12 +191,11 @@ Headers:
 
 ## Debian package boundary
 
-`libxgc2-adapter-runtime-client2` owns only ABI-2 shared objects and declares
+`libxgc2-adapter-runtime-client3` owns only ABI-3 shared objects and declares
 their system-library requirements through Debian shlibs metadata. Deployed
 Adapter executables depend on this SONAME package, so a compatible SDK rebuild
-does not force them to install headers or protocol schema sources. The former
-ABI-1 package may remain installed for binaries linked against it; ABI 2 does
-not overwrite those shared objects.
+does not force them to install headers or protocol schema sources. Earlier SONAME packages may remain installed for binaries linked against
+them; ABI 3 has separate shared objects.
 
 `libxgc2-adapter-runtime-client-dev` keeps the existing CMake and pkg-config
 consumer interface. It owns the unversioned linker symlinks, public/generated
@@ -191,11 +208,14 @@ place.
 ## Build and test
 
 Point CMake at an `xgc2-protobuf-dev` prefix from the supported RuntimeLink
-protocol 0.5.0 line:
+protocol 0.6.0 bootstrap-v3 line and an installed XRPC gRPC SDK prefix. The
+backend requires a C++20 compiler and native gRPC 1.51 or newer; these
+requirements need a matching deployment toolchain and binary ABI on Focal.
+
 
 ```bash
 cmake -S . -B build \
-  -DCMAKE_PREFIX_PATH=/path/to/xgc2-protobuf-prefix/usr \
+  -DCMAKE_PREFIX_PATH="/path/to/protobuf/usr;/path/to/xrpc;/path/to/grpc" \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build -j
 (cd build && ctest --output-on-failure)

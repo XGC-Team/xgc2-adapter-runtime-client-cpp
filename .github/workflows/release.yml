@@ -138,7 +138,7 @@ jobs:
               done
               ./.xgc2/scripts/build_deb.sh
               dpkg -i \
-                ./debs/libxgc2-adapter-runtime-client2_*.deb \
+                ./debs/libxgc2-adapter-runtime-client3_*.deb \
                 ./debs/libxgc2-adapter-runtime-client-dev_*.deb
               ./.xgc2/scripts/smoke_test_installed.sh
             '

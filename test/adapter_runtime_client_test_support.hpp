@@ -9,12 +9,15 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
+#include <xgc2/xrpc/grpc.hpp>
 
 #include "../src/internal.hpp"
 #include "xgc/adapter/v1/adapter.grpc.pb.h"
@@ -140,7 +143,14 @@ xgc::adapter::v1::AdapterProcessBootstrap TestBootstrap(
     const std::string& runtime_target) {
   xgc::adapter::v1::AdapterProcessBootstrap bootstrap;
   bootstrap.set_format_version(xgc2::adapter_runtime::kAdapterBootstrapFormatVersion);
-  bootstrap.set_runtime_target(runtime_target);
+  auto* reference = bootstrap.mutable_runtime_service();
+  reference->set_target_id("local-test");
+  reference->set_service("xgc2.adapter-runtime-link");
+  reference->set_api_version("v1");
+  reference->set_profile("grpc.v1");
+  reference->set_instance_id(xgc2::xrpc::new_instance_id());
+  reference->mutable_endpoint()->set_kind("unix");
+  reference->mutable_endpoint()->set_address(runtime_target.substr(5));
   auto* registration = bootstrap.mutable_registration();
   registration->set_instance_id(kInstanceId);
   registration->set_process_generation(kProcessGeneration);
@@ -195,6 +205,7 @@ class FakeRuntimeLink final : public RuntimeLink::Service {
     kHandlerResultValidation,
     kTerminalAcknowledgement,
     kLegacyProtocolSelection,
+    kFinitePairRenewals,
   };
 
   explicit FakeRuntimeLink(xgc::adapter::v1::AdapterInstanceSpec spec,
@@ -206,9 +217,47 @@ class FakeRuntimeLink final : public RuntimeLink::Service {
         TestPayload("replacement-instance-configuration");
   }
 
-  grpc::Status Register(grpc::ServerContext*,
+  void UseAdmission(std::shared_ptr<xgc2::xrpc::GrpcAdmission> admission) {
+    // Owner only, after every previous native method has quiesced.
+    admission_ = std::move(admission);
+  }
+  struct DeadlineRecord {
+    std::chrono::system_clock::time_point admitted_at;
+    std::chrono::system_clock::time_point deadline;
+    std::chrono::steady_clock::time_point sdk_deadline;
+  };
+  std::vector<DeadlineRecord> register_deadlines() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return register_deadlines_;
+  }
+  std::vector<DeadlineRecord> control_deadlines() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return control_deadlines_;
+  }
+  std::vector<DeadlineRecord> work_deadlines() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return work_deadlines_;
+  }
+  bool WaitForRenewedOperation() {
+    std::unique_lock<std::mutex> lock(mutex_);
+    return condition_.wait_for(lock, std::chrono::seconds(5),
+                               [this] { return renewal_operation_terminals_ != 0; });
+  }
+  int renewal_operation_requests() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return renewal_operation_requests_;
+  }
+
+  grpc::Status Register(grpc::ServerContext* context,
                         const xgc::adapter::v1::RegisterRequest* request,
                         xgc::adapter::v1::RegisterResponse* response) override {
+    auto call = admission_->begin(*context);
+    if (!call) return call.status();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      register_deadlines_.push_back(
+          {std::chrono::system_clock::now(), context->deadline(), call.deadline()});
+    }
     if (registration_attempts_.fetch_add(1) != 0) {
       return grpc::Status(grpc::StatusCode::PERMISSION_DENIED,
                           "bootstrap token was already consumed");
@@ -248,9 +297,16 @@ class FakeRuntimeLink final : public RuntimeLink::Service {
   }
 
   grpc::Status Control(
-      grpc::ServerContext*,
+      grpc::ServerContext* context,
       grpc::ServerReaderWriter<xgc::adapter::v1::ControlResponse,
                                xgc::adapter::v1::ControlRequest>* stream) override {
+    auto call = admission_->begin_stream(*context, *stream);
+    if (!call) return call.status();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      control_deadlines_.push_back(
+          {std::chrono::system_clock::now(), context->deadline(), call.deadline()});
+    }
     xgc::adapter::v1::ControlRequest first;
     if (!stream->Read(&first) || !first.has_heartbeat()) {
       return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
@@ -345,9 +401,16 @@ class FakeRuntimeLink final : public RuntimeLink::Service {
   }
 
   grpc::Status Work(
-      grpc::ServerContext*,
+      grpc::ServerContext* context,
       grpc::ServerReaderWriter<xgc::adapter::v1::WorkResponse,
                                xgc::adapter::v1::WorkRequest>* stream) override {
+    auto call = admission_->begin_stream(*context, *stream);
+    if (!call) return call.status();
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      work_deadlines_.push_back(
+          {std::chrono::system_clock::now(), context->deadline(), call.deadline()});
+    }
     xgc::adapter::v1::WorkRequest attach;
     if (!stream->Read(&attach) || !attach.has_attach()) {
       return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
@@ -377,6 +440,33 @@ class FakeRuntimeLink final : public RuntimeLink::Service {
       paired_epochs_.push_back(connection_epoch);
     }
     condition_.notify_all();
+
+    if (scenario_ == Scenario::kFinitePairRenewals) {
+      // The host sends one native mutation, only on the first finite pair.
+      // Later healthy renewals must not re-register or redispatch that effect.
+      if (connection_epoch == 1) {
+        if (!WriteOperation(stream, 1, "renewal-operation", "renewal-digest"))
+          return grpc::Status::CANCELLED;
+        std::lock_guard<std::mutex> lock(mutex_);
+        ++renewal_operation_requests_;
+      }
+      std::uint64_t last_work_sequence = 1;
+      xgc::adapter::v1::WorkRequest frame;
+      while (stream->Read(&frame)) {
+        if (!ValidateHeader(frame.header(), connection_epoch, last_work_sequence))
+          return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION,
+                              "invalid renewed Work header");
+        last_work_sequence = frame.header().frame_sequence();
+        if (frame.has_operation_event() &&
+            frame.operation_event().work_id() == "renewal-operation" &&
+            IsTerminalOperationPhase(frame.operation_event().phase())) {
+          std::lock_guard<std::mutex> lock(mutex_);
+          ++renewal_operation_terminals_;
+          condition_.notify_all();
+        }
+      }
+      return grpc::Status::OK;
+    }
 
     if (scenario_ == Scenario::kPairReconnects) {
       if (connection_epoch == 1 && !WriteSourceOpen(stream, 1, "reconnect-source")) {
@@ -1373,6 +1463,9 @@ class FakeRuntimeLink final : public RuntimeLink::Service {
     (*context->mutable_subject()->mutable_attributes())["resource-id"] = "resource-1";
   }
 
+  std::shared_ptr<xgc2::xrpc::GrpcAdmission> admission_;
+  std::vector<DeadlineRecord> register_deadlines_, control_deadlines_, work_deadlines_;
+  int renewal_operation_requests_ = 0, renewal_operation_terminals_ = 0;
   xgc::adapter::v1::AdapterInstanceSpec spec_;
   xgc::adapter::v1::AdapterInstanceSpec replacement_spec_;
   Scenario scenario_ = Scenario::kFullExchange;
@@ -1426,11 +1519,15 @@ class AdapterRuntimeClientTest : public testing::Test {
   }
 
   void SetUp() override {
-    const std::string suffix = std::to_string(static_cast<long long>(::getpid()));
-    socket_path_ = "/tmp/xgc2-adapter-runtime-test-" + suffix + ".sock";
-    bootstrap_path_ = "/tmp/xgc2-adapter-runtime-test-" + suffix + ".bootstrap.pb";
-    std::remove(socket_path_.c_str());
-    std::remove(bootstrap_path_.c_str());
+    char pattern[] = "/tmp/xgc2-adapter-native-XXXXXX";
+    const char* directory = ::mkdtemp(pattern);
+    ASSERT_NE(directory, nullptr);
+    fixture_directory_ = directory;
+    struct stat metadata {};
+    ASSERT_EQ(::stat(fixture_directory_.c_str(), &metadata), 0);
+    ASSERT_EQ(metadata.st_mode & 0777, 0700);
+    socket_path_ = fixture_directory_ + "/runtime.sock";
+    bootstrap_path_ = fixture_directory_ + "/bootstrap.pb";
     bootstrap_ = TestBootstrap("unix:" + socket_path_);
 
     std::ofstream output(bootstrap_path_, std::ios::out | std::ios::binary);
@@ -1444,39 +1541,49 @@ class AdapterRuntimeClientTest : public testing::Test {
 
   void RestartRuntimeServer() {
     StopRuntimeServer();
-    StartRuntimeServer();
+    if (!server_) StartRuntimeServer();
   }
 
   void StopRuntimeServer() {
     ASSERT_NE(server_, nullptr);
-    server_->Shutdown(std::chrono::system_clock::now());
-    server_->Wait();
+    // Cancel native streams now; retain SDK lease and service until every
+    // admitted method has returned. Fixture business waits are bounded at 5s.
+    if (!server_->shutdown_until(xgc2::xrpc::GrpcClock::now())) {
+      ASSERT_TRUE(server_->shutdown_until(xgc2::xrpc::GrpcClock::now() +
+                                          std::chrono::seconds(6)));
+    }
     server_.reset();
-    std::remove(socket_path_.c_str());
+    admission_.reset();
   }
 
   void StartRuntimeServer() {
-    grpc::ServerBuilder builder;
-    builder.AddListeningPort("unix:" + socket_path_, grpc::InsecureServerCredentials());
-    builder.RegisterService(service_.get());
-    server_ = builder.BuildAndStart();
+    xgc2::xrpc::GrpcLimits limits;
+    limits.connections = 16;
+    limits.inflight = 32;
+    limits.streams_per_connection = 8;
+    limits.call_timeout = std::chrono::milliseconds(30000);
+    limits.native_threads = 12;
+    admission_ = std::make_shared<xgc2::xrpc::GrpcAdmission>(
+        bootstrap_.runtime_service().instance_id(), limits);
+    service_->UseAdmission(admission_);
+    xgc2::xrpc::UnixOptions endpoint;
+    endpoint.path = socket_path_;
+    server_ = std::make_unique<xgc2::xrpc::GrpcUnixServer>(
+        endpoint, *admission_, std::vector<grpc::Service*>{service_.get()});
     ASSERT_NE(server_, nullptr);
   }
 
   void TearDown() override {
-    if (server_) {
-      server_->Shutdown();
-      server_->Wait();
-    }
-    std::remove(socket_path_.c_str());
-    std::remove(bootstrap_path_.c_str());
+    if (server_) StopRuntimeServer();
+    if (!server_ && !fixture_directory_.empty())
+      std::filesystem::remove_all(fixture_directory_);
   }
 
   xgc::adapter::v1::AdapterProcessBootstrap bootstrap_;
   std::unique_ptr<FakeRuntimeLink> service_;
-  std::unique_ptr<grpc::Server> server_;
-  std::string socket_path_;
-  std::string bootstrap_path_;
+  std::shared_ptr<xgc2::xrpc::GrpcAdmission> admission_;
+  std::unique_ptr<xgc2::xrpc::GrpcUnixServer> server_;
+  std::string socket_path_, bootstrap_path_, fixture_directory_;
 };
 
 }  // namespace

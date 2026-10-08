@@ -17,6 +17,8 @@ sources=(
   src/dispatch.cpp
   src/internal.hpp
   src/queue.cpp
+  src/rpc_policy.cpp
+  src/rpc_policy.hpp
   src/session.cpp
   src/session_state.cpp
   src/source_dispatch.cpp
@@ -52,6 +54,6 @@ if ! grep -Eq 'Total Tests: [1-9][0-9]*' <<<"${test_listing}"; then
 fi
 (cd "${build_dir}" && ctest --output-on-failure)
 cppcheck --enable=warning,performance,portability \
-  --error-exitcode=1 --std=c++14 --inline-suppr -I include -I src src
+  --error-exitcode=1 --std=c++20 --inline-suppr -I include -I src src
 
 echo "C++ quality checks passed."

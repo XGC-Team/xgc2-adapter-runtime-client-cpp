@@ -143,7 +143,8 @@ ClientConfig ClientConfig::FromBootstrapFile(const std::string& path) {
   if (path.empty() || path.front() != '/') {
     throw std::invalid_argument("adapter bootstrap path must be absolute");
   }
-  const FileDescriptor input(::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW));
+  const FileDescriptor input(
+      ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK));
   if (input.get() < 0) {
     throw std::runtime_error("adapter bootstrap could not be opened securely");
   }
@@ -187,13 +188,13 @@ ClientConfig ClientConfig::FromBootstrapFile(const std::string& path) {
     throw std::runtime_error("failed to parse binary AdapterProcessBootstrap");
   }
   if (bootstrap.format_version() != kAdapterBootstrapFormatVersion ||
-      bootstrap.runtime_target().empty() || !bootstrap.has_registration() ||
+      !bootstrap.has_runtime_service() || !bootstrap.has_registration() ||
       !bootstrap.has_initial_spec()) {
     throw std::invalid_argument(
         "AdapterProcessBootstrap format, target, registration, or spec is invalid");
   }
   std::string target_error;
-  if (!internal::ValidateRuntimeTarget(bootstrap.runtime_target(), &target_error)) {
+  if (!internal::ValidateRuntimeService(bootstrap.runtime_service(), &target_error)) {
     throw std::invalid_argument(target_error);
   }
   if (!bootstrap.registration().sdk_version().empty()) {
@@ -202,7 +203,8 @@ ClientConfig ClientConfig::FromBootstrapFile(const std::string& path) {
   }
 
   ClientConfig config;
-  config.runtime_target_ = bootstrap.runtime_target();
+  config.ApplyXrpcEnvironment({});
+  config.runtime_service_ = bootstrap.runtime_service();
   config.registration_ = bootstrap.registration();
   config.registration_.set_sdk_version(kClientVersion);
   config.initial_spec_ = bootstrap.initial_spec();
@@ -214,9 +216,9 @@ ClientConfig ClientConfig::FromBootstrapFile(const std::string& path) {
   return config;
 }
 
-bool ClientConfig::BindCapability(std::string capability_id,
+bool ClientConfig::BindCapability(const std::string& capability_id,
                                   std::uint32_t contract_version,
-                                  std::string contract_digest,
+                                  const std::string& contract_digest,
                                   CapabilityCallbacks callbacks, std::string* error) {
   const std::string key = ContractKey(capability_id, contract_version, contract_digest);
   for (auto& binding : capabilities_) {

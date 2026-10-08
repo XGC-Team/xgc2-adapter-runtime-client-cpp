@@ -234,36 +234,46 @@ inline void SetError(std::string* error, const std::string& message) {
   }
 }
 
-inline bool ValidateRuntimeTarget(const std::string& runtime_target,
-                                  std::string* error) {
-  std::string socket_path;
-  if (runtime_target.compare(0, 7, "unix://") == 0) {
-    socket_path = runtime_target.substr(7);
-  } else if (runtime_target.compare(0, 5, "unix:") == 0) {
-    socket_path = runtime_target.substr(5);
-  } else {
-    SetError(error, "runtime_target must use the unix scheme");
+inline bool ValidateRuntimeService(
+    const xgc::adapter::v1::RuntimeServiceReference& reference, std::string* error) {
+  const auto reference_id = [](const std::string& value) {
+    return !value.empty() && value.size() <= 128 &&
+           std::all_of(value.begin(), value.end(), [](unsigned char character) {
+             return (character >= 'a' && character <= 'z') ||
+                    (character >= 'A' && character <= 'Z') ||
+                    (character >= '0' && character <= '9') || character == '.' ||
+                    character == '_' || character == ':' || character == '-';
+           });
+  };
+  if (!reference_id(reference.target_id()) ||
+      reference.service() != "xgc2.adapter-runtime-link" ||
+      reference.api_version() != "v1" || reference.profile() != "grpc.v1" ||
+      !reference_id(reference.instance_id()) || !reference.has_endpoint() ||
+      reference.endpoint().kind() != "unix") {
+    SetError(error,
+             "Runtime ServiceRef requires an exact grpc.v1 unix instance binding");
     return false;
   }
-  if (socket_path.size() <= 1 || socket_path.front() != '/' ||
-      socket_path.back() == '/') {
-    SetError(error, "unix target must contain a canonical absolute socket path");
+  const auto& socket_path = reference.endpoint().address();
+  if (socket_path.size() <= 1 || socket_path.size() >= 108 ||
+      socket_path.front() != '/' || socket_path.back() == '/' ||
+      socket_path.find('\0') != std::string::npos) {
+    SetError(error,
+             "unix endpoint must contain a bounded canonical absolute socket path");
     return false;
   }
   std::size_t component_start = 1;
   while (component_start < socket_path.size()) {
-    const std::size_t separator = socket_path.find('/', component_start);
-    const std::size_t component_size =
+    const auto separator = socket_path.find('/', component_start);
+    const auto component = socket_path.substr(
+        component_start,
         (separator == std::string::npos ? socket_path.size() : separator) -
-        component_start;
-    const std::string component = socket_path.substr(component_start, component_size);
+            component_start);
     if (component.empty() || component == "." || component == "..") {
-      SetError(error, "unix target must contain a canonical absolute socket path");
+      SetError(error, "unix endpoint must contain a canonical absolute socket path");
       return false;
     }
-    if (separator == std::string::npos) {
-      break;
-    }
+    if (separator == std::string::npos) break;
     component_start = separator + 1;
   }
   return true;

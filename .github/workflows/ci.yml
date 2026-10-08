@@ -22,7 +22,7 @@ jobs:
           git diff --check HEAD
           ./.xgc2/scripts/check_package_compliance.sh
   cpp14-focal:
-    name: Focal C++14 integration and quality
+    name: Focal C++20 backend and C++14 consumer quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,7 +118,7 @@ jobs:
               done
               ./.xgc2/scripts/build_deb.sh
               dpkg -i \
-                ./debs/libxgc2-adapter-runtime-client2_*.deb \
+                ./debs/libxgc2-adapter-runtime-client3_*.deb \
                 ./debs/libxgc2-adapter-runtime-client-dev_*.deb
               ./.xgc2/scripts/smoke_test_installed.sh
             '

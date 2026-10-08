@@ -8,6 +8,24 @@ namespace adapter_runtime {
 
 void Client::Impl::WorkStreamLoop(SessionFence fence) {
   auto context = std::make_shared<grpc::ClientContext>();
+  std::unique_ptr<xgc2::xrpc::GrpcClientCall> native_call;
+  try {
+    native_call = std::make_unique<xgc2::xrpc::GrpcClientCall>(
+        *context, config_.runtime_service().instance_id(), fence.transport_deadline);
+  } catch (const std::exception& error) {
+    SignalSessionFailure(fence.session_id, error.what());
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    active_work_context_ = context;
+    if (stop_requested_) context->TryCancel();
+  }
+  const auto dispatched = native_call->mark_dispatched();
+  if (!dispatched.ok()) {
+    SignalSessionFailure(fence.session_id, dispatched.error_message());
+    return;
+  }
   auto stream = stub_->Work(context.get());
   if (!stream) {
     SignalSessionFailure(fence.session_id, "Work stream could not be opened");
@@ -21,10 +39,14 @@ void Client::Impl::WorkStreamLoop(SessionFence fence) {
       active_work_context_ = context;
     }
   }
-  std::thread writer(&Impl::WorkWriterLoop, this, stream.get(), fence);
+  const auto metadata = native_call->receive_initial_metadata(*stream);
+  if (!metadata.ok()) context->TryCancel();
+  std::thread writer;
+  if (metadata.ok())
+    writer = std::thread(&Impl::WorkWriterLoop, this, stream.get(), fence);
 
   xgc::adapter::v1::WorkResponse response;
-  while (!StopRequested() && stream->Read(&response)) {
+  while (metadata.ok() && !StopRequested() && stream->Read(&response)) {
     if (response.ByteSizeLong() > fence.maximum_work_frame_bytes) {
       SignalTerminalSessionFailure(fence.session_id,
                                    "Host Work frame exceeds the negotiated limit");
@@ -46,7 +68,8 @@ void Client::Impl::WorkStreamLoop(SessionFence fence) {
     writer.join();
   }
   stream->WritesDone();
-  const grpc::Status status = stream->Finish();
+  const auto native_status = native_call->verify(stream->Finish());
+  const grpc::Status status = metadata.ok() ? native_status : metadata;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (active_work_context_ == context) {

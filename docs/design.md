@@ -7,9 +7,11 @@ rejects relative paths, symlinks, non-regular files, wrong ownership, modes
 other than 0600, unknown format versions, malformed protobuf, and an SDK version
 that conflicts with the linked library. The SDK writes its actual version into
 registration; it never lets application defaults stand in for Supervisor
-proofs. The embedded Runtime target must be a canonical absolute Unix socket;
-network schemes and alternate relative transports are rejected before a gRPC
-channel is created.
+proofs. Bootstrap format 3 carries a complete instance-bound ServiceRef for
+`xgc2.adapter-runtime-link/v1/grpc.v1`, with a canonical absolute Unix address.
+The hosting incarnation is independent of the registered adapter identity.
+Older bootstrap versions and the reserved string target are rejected before
+the shared XRPC SDK creates a native gRPC channel.
 
 `BindCapability` can attach callbacks only to an exact contract already present
 in bootstrap registration. Before applying a spec, the SDK validates the whole
@@ -45,6 +47,13 @@ not call `Client::Stop()` from a client-owned thread.
 
 ## Paired streams and fencing
 
+Transport construction uses the shared XRPC SDK with an explicit startup
+policy snapshot. Client projection applies request/response/header limits and
+native call/idle budgets; the product enforces the complete outgoing stream
+count as exactly one Control/Work pair. Unsupported explicit host fields,
+unknown names and values above product ceilings fail before channel creation.
+Effective policy values retain their SDK source and ceiling metadata.
+
 Register is attempted exactly once for a process generation. As soon as that
 RPC completes, the SDK overwrites and releases both in-memory copies of the
 single-use bootstrap token. A running process never retries Register.
@@ -76,6 +85,13 @@ epoch. When the Host repeats the same full spec revision and digest,
 the SDK reports it applied without rerunning `apply_instance_spec`, `start`, or
 `ready`. Only a genuinely newer spec performs the stop/clear/apply/start/ready
 transaction.
+
+Every pair receives one finite steady-clock deadline from `CALL_TIMEOUT_MS`,
+projected through the SDK rounding margin to both native contexts. An expired
+healthy pair renews the same session and resets the transport retry budget;
+the committed configuration and terminal replay survive. It neither consumes
+a new registration proof nor repeats native effects. Response identity is
+verified before the first stream payload and again at native completion.
 
 Pair retries use bounded exponential backoff. A rejected session/fence/epoch or
 an exhausted retry budget stops native state, enters `kSessionLost`, and invokes
