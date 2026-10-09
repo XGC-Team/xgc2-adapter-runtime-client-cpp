@@ -80,21 +80,28 @@ jobs:
       - name: Focal source tests
         run: |
           set -euo pipefail
-          docker run --rm --network none \
+          docker run --rm \
+            -e BUILD_UID="$(id -u)" -e BUILD_GID="$(id -g)" -e HOME=/tmp \
+            -e XGC2_APT_OVERLAY_URL="${XGC2_APT_OVERLAY_URL:-}" \
+            -e XGC2_DEPENDENCY_SET_DIGEST="${XGC2_DEPENDENCY_SET_DIGEST:-}" \
             -v "${GITHUB_WORKSPACE}:/work" \
             -v "${GITHUB_WORKSPACE}/proto-debs:/proto-debs:ro" \
             -w /work \
-            ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0 \
+            ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a \
             bash -lc '
               set -euo pipefail
               dpkg -i /proto-debs/xgc2-protobuf-dev_*.deb
+              suite="${PACKAGE_DISTRIBUTION:-focal}"
+              ./.xgc2/scripts/configure_xgc2_apt.sh "$suite"
+              apt-get install -y --no-install-recommends libxgc2-xrpc-grpc-dev
+              if [[ "$suite" == focal ]]; then export CC=clang-10 CXX=clang++-10; fi
               for pkg in build-essential clang-format cmake cppcheck \
                 libgrpc++-dev libgtest-dev libprotobuf-dev libre2-dev \
                 pkg-config protobuf-compiler protobuf-compiler-grpc
               do
                 dpkg -s "${pkg}" >/dev/null
               done
-              ./.xgc2/scripts/check_cpp_quality.sh
+              setpriv --reuid "$BUILD_UID" --regid "$BUILD_GID" --clear-groups ./.xgc2/scripts/check_cpp_quality.sh
             '
   deb-build-and-smoke:
     needs: release-guard
@@ -103,12 +110,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {architecture: amd64, runner: ubuntu-latest, platform: linux/amd64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0", distribution: focal}
-          - {architecture: arm64, runner: ubuntu-24.04-arm, platform: linux/arm64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0", distribution: focal}
-          - {architecture: amd64, runner: ubuntu-latest, platform: linux/amd64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0", distribution: jammy}
-          - {architecture: arm64, runner: ubuntu-24.04-arm, platform: linux/arm64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0", distribution: jammy}
-          - {architecture: amd64, runner: ubuntu-latest, platform: linux/amd64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0", distribution: noble}
-          - {architecture: arm64, runner: ubuntu-24.04-arm, platform: linux/arm64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0", distribution: noble}
+          - {architecture: amd64, runner: ubuntu-latest, platform: linux/amd64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a", distribution: focal}
+          - {architecture: arm64, runner: ubuntu-24.04-arm, platform: linux/arm64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-full-noetic:1.0.8@sha256:fce2d76fddf4f6439bf0a188249b731650febdc163befc360bed186b269d252a", distribution: focal}
+          - {architecture: amd64, runner: ubuntu-latest, platform: linux/amd64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-full-humble:1.0.3@sha256:784dc2690d63b62ad2ec3cfdac12bf63c5931247c7ae816de8f73d336e0dc9a5", distribution: jammy}
+          - {architecture: arm64, runner: ubuntu-24.04-arm, platform: linux/arm64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-full-humble:1.0.3@sha256:784dc2690d63b62ad2ec3cfdac12bf63c5931247c7ae816de8f73d336e0dc9a5", distribution: jammy}
+          - {architecture: amd64, runner: ubuntu-latest, platform: linux/amd64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-full-jazzy:1.0.3@sha256:aeb658acc5e40f5aad5caeb61c6aa5511a23b2111a28e88e7453defa02a32104", distribution: noble}
+          - {architecture: arm64, runner: ubuntu-24.04-arm, platform: linux/arm64, image: "ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-full-jazzy:1.0.3@sha256:aeb658acc5e40f5aad5caeb61c6aa5511a23b2111a28e88e7453defa02a32104", distribution: noble}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch sibling xgc2-protobuf-dev
@@ -122,7 +129,10 @@ jobs:
         run: |
           set -euo pipefail
           install -d .ci/build-manifests
-          docker run --rm --network none --platform "${{ matrix.platform }}" \
+          docker run --rm \
+            -e BUILD_UID="$(id -u)" -e BUILD_GID="$(id -g)" -e HOME=/tmp \
+            -e XGC2_APT_OVERLAY_URL="${XGC2_APT_OVERLAY_URL:-}" \
+            -e XGC2_DEPENDENCY_SET_DIGEST="${XGC2_DEPENDENCY_SET_DIGEST:-}" --platform "${{ matrix.platform }}" \
             -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
             -v "${GITHUB_WORKSPACE}:/work" \
             -v "${GITHUB_WORKSPACE}/proto-debs:/proto-debs:ro" \
@@ -130,17 +140,21 @@ jobs:
             "${{ matrix.image }}" bash -lc '
               set -euo pipefail
               dpkg -i /proto-debs/xgc2-protobuf-dev_*.deb
+              suite="${PACKAGE_DISTRIBUTION:-focal}"
+              ./.xgc2/scripts/configure_xgc2_apt.sh "$suite"
+              apt-get install -y --no-install-recommends libxgc2-xrpc-grpc-dev
+              if [[ "$suite" == focal ]]; then export CC=clang-10 CXX=clang++-10; fi
               for pkg in build-essential cmake dpkg-dev fakeroot file \
                 libgrpc++-dev libprotobuf-dev libre2-dev pkg-config \
                 protobuf-compiler protobuf-compiler-grpc
               do
                 dpkg -s "${pkg}" >/dev/null
               done
-              ./.xgc2/scripts/build_deb.sh
+              setpriv --reuid "$BUILD_UID" --regid "$BUILD_GID" --clear-groups ./.xgc2/scripts/build_deb.sh
               dpkg -i \
                 ./debs/libxgc2-adapter-runtime-client3_*.deb \
                 ./debs/libxgc2-adapter-runtime-client-dev_*.deb
-              ./.xgc2/scripts/smoke_test_installed.sh
+              setpriv --reuid "$BUILD_UID" --regid "$BUILD_GID" --clear-groups ./.xgc2/scripts/smoke_test_installed.sh
             '
           python3 .xgc2/scripts/xgc2_artifact_manifest.py build \
             --deb-dir debs --output-dir .ci/build-manifests \

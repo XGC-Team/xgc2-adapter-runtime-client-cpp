@@ -163,7 +163,7 @@ Section: libdevel
 Priority: optional
 Architecture: ${architecture}
 Maintainer: XGC2 <apt@example.com>
-Depends: ${runtime_package} (= ${version}), xgc2-protobuf-dev (= ${protobuf_deb_version}), libxgc2-xrpc-grpc-dev (>= 0.1.0-1~${distribution}), libgrpc++-dev (>= 1.51), libprotobuf-dev
+Depends: ${runtime_package} (= ${version}), xgc2-protobuf-dev (= ${protobuf_deb_version}), libxgc2-xrpc-grpc-dev (>= 0.1.0-1~${distribution}), libgrpc++-dev (>= 1.16), libprotobuf-dev
 Description: Generic XGC2 Adapter Runtime C++ SDK
  Capability-first AdapterRuntimeLink client and generated protocol libraries,
  public headers, CMake exports, and pkg-config metadata. The SDK owns trusted
