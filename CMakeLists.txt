@@ -101,7 +101,7 @@ set_target_properties(xgc2_adapter_runtime_protocol PROPERTIES
   SOVERSION 3
 )
 target_compile_features(xgc2_adapter_runtime_protocol PUBLIC cxx_std_14)
-target_include_directories(xgc2_adapter_runtime_protocol
+target_include_directories(xgc2_adapter_runtime_protocol SYSTEM
   PUBLIC
     $<BUILD_INTERFACE:${XGC2_GENERATED_DIR}>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
