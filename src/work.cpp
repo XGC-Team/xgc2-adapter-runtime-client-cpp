@@ -69,7 +69,9 @@ void Client::Impl::WorkStreamLoop(SessionFence fence) {
   }
   stream->WritesDone();
   const auto native_status = native_call->verify(stream->Finish());
-  const grpc::Status status = metadata.ok() ? native_status : metadata;
+  const grpc::Status status =
+      metadata.ok() || context->GetServerInitialMetadata().empty() ? native_status
+                                                                   : metadata;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (active_work_context_ == context) {

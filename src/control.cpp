@@ -79,7 +79,12 @@ void Client::Impl::ControlStreamLoop(SessionFence fence) {
   }
   stream->WritesDone();
   const auto native_status = native_call->verify(stream->Finish());
-  const grpc::Status status = metadata.ok() ? native_status : metadata;
+  // An unreachable peer has no response metadata. Preserve Finish's transport
+  // status so the existing bounded pair reconnect can run; an actual response
+  // with invalid identity remains a terminal admission failure.
+  const grpc::Status status =
+      metadata.ok() || context->GetServerInitialMetadata().empty() ? native_status
+                                                                   : metadata;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (active_control_context_ == context) {
