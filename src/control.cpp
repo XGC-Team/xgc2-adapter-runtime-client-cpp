@@ -18,6 +18,7 @@ bool IsTerminalSpecFailure(const std::string& code) {
 
 void Client::Impl::ControlStreamLoop(SessionFence fence) {
   auto context = std::make_shared<grpc::ClientContext>();
+  context->set_wait_for_ready(true);
   std::unique_ptr<xgc2::xrpc::GrpcClientCall> native_call;
   try {
     native_call = std::make_unique<xgc2::xrpc::GrpcClientCall>(

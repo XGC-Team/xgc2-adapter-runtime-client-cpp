@@ -8,6 +8,7 @@ namespace adapter_runtime {
 
 void Client::Impl::WorkStreamLoop(SessionFence fence) {
   auto context = std::make_shared<grpc::ClientContext>();
+  context->set_wait_for_ready(true);
   std::unique_ptr<xgc2::xrpc::GrpcClientCall> native_call;
   try {
     native_call = std::make_unique<xgc2::xrpc::GrpcClientCall>(
@@ -121,13 +122,15 @@ void Client::Impl::WorkWriterLoop(WorkStream* stream, SessionFence fence) {
   }
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    // A written WorkAttach completes this pair even if transport loss wins
+    // the race with this lock. The next pair gets a fresh retry budget.
+    if (session_id_ == fence.session_id) pair_ready_ = true;
     if (session_id_ == fence.session_id && !session_failed_ && !stop_requested_ &&
         work_attach_allowed_ &&
         work_attach_connection_epoch_ == fence.connection_epoch) {
       accepting_work_ = true;
       state_ = ClientState::kReady;
       ready_callbacks_complete_ = true;
-      pair_ready_ = true;
     }
   }
   condition_.notify_all();

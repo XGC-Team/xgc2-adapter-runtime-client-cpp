@@ -498,9 +498,9 @@ TEST_F(PairReconnectTest, RegistersOnceAndReplacesThePairAtStrictEpochsTwoAndThr
     ASSERT_TRUE(source_condition.wait_for(lock, std::chrono::seconds(5),
                                           [&] { return opening_source_cancelled; }));
   }
-  ASSERT_TRUE(service_->WaitForPairAttachments(2));
+  ASSERT_TRUE(service_->WaitForPairAttachments(2)) << client.session().last_error;
   RestartRuntimeServer();
-  ASSERT_TRUE(service_->WaitForPairAttachments(3));
+  ASSERT_TRUE(service_->WaitForPairAttachments(3)) << client.session().last_error;
 
   const std::vector<std::uint64_t> expected_epochs{1, 2, 3};
   EXPECT_EQ(service_->control_epochs(), expected_epochs);
@@ -824,16 +824,17 @@ TEST_F(FinitePairRenewalTest,
   ASSERT_EQ(registrations.size(), 1U);
   ASSERT_GE(control.size(), 3U);
   ASSERT_GE(work.size(), 3U);
+  // Native gRPC rounds its encoded timeout up to the next millisecond.
   for (const auto& call : registrations) {
     EXPECT_NE(call.deadline, system_clock::time_point::max());
     EXPECT_GT(call.deadline, call.admitted_at);
-    EXPECT_LE(call.deadline - call.admitted_at, budget);
+    EXPECT_LE(call.deadline - call.admitted_at, budget + milliseconds(1));
   }
   for (std::size_t pair = 0; pair != 3; ++pair) {
     for (const auto& call : {control[pair], work[pair]}) {
       EXPECT_NE(call.deadline, system_clock::time_point::max());
       EXPECT_GT(call.deadline, call.admitted_at);
-      EXPECT_LE(call.deadline - call.admitted_at, budget);
+      EXPECT_LE(call.deadline - call.admitted_at, budget + milliseconds(1));
     }
     const auto difference = control[pair].deadline > work[pair].deadline
                                 ? control[pair].deadline - work[pair].deadline

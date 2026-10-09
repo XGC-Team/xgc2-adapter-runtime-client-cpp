@@ -213,6 +213,10 @@ void Client::Impl::SupervisorLoop() {
         config_.xrpc_transport_->limits,
         std::chrono::steady_clock::now() +
             config_.xrpc_transport_->limits.call_timeout);
+    const auto attach_deadline =
+        std::chrono::steady_clock::now() +
+        std::min(std::chrono::milliseconds(config_.rpc_timeout_ms),
+                 config_.xrpc_transport_->limits.call_timeout);
     {
       std::lock_guard<std::mutex> lock(mutex_);
       pair_fence.connection_epoch = connection_epoch_counter_;
@@ -224,12 +228,15 @@ void Client::Impl::SupervisorLoop() {
     bool start_work = false;
     {
       std::unique_lock<std::mutex> lock(mutex_);
-      condition_.wait(lock, [this, &pair_fence] {
-        return stop_requested_ || session_failed_ || terminal_session_failure_ ||
-               session_id_ != pair_fence.session_id ||
-               (work_attach_allowed_ &&
-                work_attach_connection_epoch_ == pair_fence.connection_epoch);
-      });
+      if (!condition_.wait_until(lock, attach_deadline, [this, &pair_fence] {
+            return stop_requested_ || session_failed_ || terminal_session_failure_ ||
+                   session_id_ != pair_fence.session_id ||
+                   (work_attach_allowed_ &&
+                    work_attach_connection_epoch_ == pair_fence.connection_epoch);
+          })) {
+        session_failed_ = true;
+        last_error_ = "Control attachment timed out";
+      }
       start_work = !stop_requested_ && !session_failed_ && !terminal_session_failure_ &&
                    session_id_ == pair_fence.session_id && work_attach_allowed_ &&
                    work_attach_connection_epoch_ == pair_fence.connection_epoch;
@@ -239,6 +246,13 @@ void Client::Impl::SupervisorLoop() {
     if (start_work) {
       work_thread = std::thread(&Impl::WorkStreamLoop, this, pair_fence);
       std::unique_lock<std::mutex> lock(mutex_);
+      if (!condition_.wait_until(lock, attach_deadline, [this, &pair_fence] {
+            return pair_ready_ || stop_requested_ || session_failed_ ||
+                   terminal_session_failure_ || session_id_ != pair_fence.session_id;
+          })) {
+        session_failed_ = true;
+        last_error_ = "Work attachment timed out";
+      }
       condition_.wait(lock, [this, &pair_fence] {
         return stop_requested_ || session_failed_ || terminal_session_failure_ ||
                session_id_ != pair_fence.session_id;
@@ -305,6 +319,14 @@ void Client::Impl::SupervisorLoop() {
     }
     WaitFor(reconnect_delay);
     reconnect_delay = NextBackoff(reconnect_delay);
+    // Both old streams have joined. A replacement pair owns a fresh native
+    // connection; a draining transport must not consume its only retry.
+    if (!StopRequested()) {
+      channel_ = xgc2::xrpc::make_grpc_unix_channel(
+          config_.runtime_service().endpoint().address(),
+          config_.xrpc_transport_->limits);
+      stub_ = xgc::adapter::v1::AdapterRuntimeLinkService::NewStub(channel_);
+    }
   }
 
   DeactivateApplication("Runtime Link supervisor stopped");
