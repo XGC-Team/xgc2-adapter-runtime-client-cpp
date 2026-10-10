@@ -161,11 +161,6 @@ install(DIRECTORY "${XGC2_GENERATED_DIR}/xgc/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/xgc"
   FILES_MATCHING PATTERN "*.h"
 )
-install(DIRECTORY docs/
-  DESTINATION
-    "${CMAKE_INSTALL_DATADIR}/doc/libxgc2-adapter-runtime-client-dev/docs"
-)
-
 configure_package_config_file(
   cmake/xgc2_adapter_runtime_clientConfig.cmake.in
   "${CMAKE_CURRENT_BINARY_DIR}/xgc2_adapter_runtime_clientConfig.cmake"

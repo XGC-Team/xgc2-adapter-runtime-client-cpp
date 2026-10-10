@@ -8,7 +8,7 @@ cd "${repo_root}"
 bash -n .xgc2/scripts/*.sh
 
 required=(
-  LICENSE README.md CMakeLists.txt
+  README.md CMakeLists.txt
   cmake/xgc2_adapter_runtime_clientConfig.cmake.in
   pkgconfig/xgc2-adapter-runtime-client.pc.in
   include/xgc2/adapter_runtime/client.hpp
@@ -21,7 +21,7 @@ required=(
   test/adapter_runtime_client_handler_test.cpp
   test/adapter_runtime_client_session_test.cpp
   test/adapter_runtime_client_source_test.cpp
-  test/adapter_runtime_client_test_support.hpp docs/design.md
+  test/adapter_runtime_client_test_support.hpp
   .github/workflows/ci.yml .github/workflows/release.yml
   .xgc2/dependencies/xgc2-protobuf.env
   .xgc2/product.yml .xgc2/scripts/build_deb.sh
@@ -67,13 +67,13 @@ if grep -R -E '#include[[:space:]]*[<\"]ros/|find_package\(catkin|catkin_package
 fi
 if grep -R -E -i \
     'adapter_link|AdapterPlan|ProfileAdvertisement|robot([-_](group|resource|id))?|telemetry|OpenSourceStream|CloseSourceStream|STREAM_(SINK|DUPLEX)|protocol[[:space:]]+0\.4|bounded[[:space:]]+FIFO' \
-    CMakeLists.txt cmake pkgconfig include src test README.md docs 2>/dev/null; then
+    CMakeLists.txt cmake pkgconfig include src test README.md 2>/dev/null; then
   echo "legacy or domain-specific API leaked into the generic Runtime SDK" >&2
   exit 1
 fi
 if grep -R -E \
     'volatile_(supported|work)|volatile (Work|endpoint)|context\(\)\.volatile_|\.volatile_\(' \
-    cmake pkgconfig include src test README.md docs 2>/dev/null; then
+    cmake pkgconfig include src test README.md 2>/dev/null; then
   echo "retired non-durable Work semantics leaked into the Runtime SDK" >&2
   exit 1
 fi

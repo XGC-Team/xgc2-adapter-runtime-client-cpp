@@ -132,13 +132,13 @@ jobs:
               done
               setpriv --reuid "$BUILD_UID" --regid "$BUILD_GID" --clear-groups ./.xgc2/scripts/build_deb.sh
               dpkg -i \
-                ./debs/libxgc2-adapter-runtime-client3_*.deb \
-                ./debs/libxgc2-adapter-runtime-client-dev_*.deb
+                ./.ci/debs/libxgc2-adapter-runtime-client3_*.deb \
+                ./.ci/debs/libxgc2-adapter-runtime-client-dev_*.deb
               setpriv --reuid "$BUILD_UID" --regid "$BUILD_GID" --clear-groups ./.xgc2/scripts/smoke_test_installed.sh
             '
           product_version="$(awk -F': *' '/^version:/ {print $2; exit}' .xgc2/product.yml)"
           python3 .xgc2/scripts/xgc2_artifact_manifest.py build \
-            --deb-dir debs \
+            --deb-dir .ci/debs \
             --output-dir .ci/build-manifests \
             --product libxgc2-adapter-runtime-client-dev \
             --product-version "${product_version}" \
@@ -152,7 +152,7 @@ jobs:
         with:
           name: adapter-runtime-client-${{ matrix.distribution }}-${{ matrix.architecture }}
           path: |
-            debs/*.deb
+            .ci/debs/*.deb
             .ci/build-manifests/*.json
           retention-days: 14
           include-hidden-files: true

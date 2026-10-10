@@ -8,7 +8,7 @@ runtime_package="libxgc2-adapter-runtime-client3"
 distribution="${PACKAGE_DISTRIBUTION:-}"
 build_dir="${XGC2_ADAPTER_RUNTIME_BUILD_DIR:-${repo_root}/.ci/build}"
 stage_dir="${XGC2_ADAPTER_RUNTIME_STAGE_DIR:-${repo_root}/.ci/stage}"
-output_dir="${XGC2_ADAPTER_RUNTIME_DEB_OUTPUT_DIR:-${repo_root}/debs}"
+output_dir="${XGC2_ADAPTER_RUNTIME_DEB_OUTPUT_DIR:-${repo_root}/.ci/debs}"
 dev_package_root="${repo_root}/.ci/pkg/${dev_package}"
 runtime_package_root="${repo_root}/.ci/pkg/${runtime_package}"
 architecture="$(dpkg --print-architecture)"
@@ -98,9 +98,9 @@ find "${dev_lib_dir}" -maxdepth 1 \
   \( -type f -o -type l \) \
   -name 'libxgc2_adapter_runtime_*.so.*' -delete
 
-cp -a "${repo_root}/README.md" "${repo_root}/LICENSE" \
+cp -a "${repo_root}/README.md" \
   "${dev_package_root}/usr/share/doc/${dev_package}/"
-cp -a "${repo_root}/README.md" "${repo_root}/LICENSE" \
+cp -a "${repo_root}/README.md" \
   "${runtime_package_root}/usr/share/doc/${runtime_package}/"
 
 shlibdeps_dir="${repo_root}/.ci/shlibdeps"
